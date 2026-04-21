@@ -1,0 +1,35 @@
+{
+  "name": "home-assistant-lens-map-card",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Home Assistant Lovelace card to display persons on a map based on configurable display rules",
+  "main": "dist/home-assistant-lens-map-card.js",
+  "scripts": {
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "dev": "rollup -c -w",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/ui": "^4.1.2",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.27.5",
+    "jsdom": "^29.0.1",
+    "lit": "^3.0.0",
+    "rollup": "^4.52.5",
+    "rollup-plugin-terser": "^7.0.2",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
+  }
+}
