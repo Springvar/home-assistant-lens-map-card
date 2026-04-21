@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Lens Map Card + Editor Demo</title>
+        <script type="module" src="/src/lens-map-card.ts"></script>
+        <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+        <script>
+            class HaIcon extends HTMLElement {
+                static get observedAttributes() {
+                    return ['icon'];
+                }
+
+                connectedCallback() {
+                    this.style.display = 'inline-flex';
+                    this.style.alignItems = 'center';
+                    this.style.justifyContent = 'center';
+                    this.render();
+                }
+
+                attributeChangedCallback() {
+                    this.render();
+                }
+
+                async render() {
+                    const icon = this.getAttribute('icon');
+                    if (icon && icon.startsWith('mdi:')) {
+                        const iconName = icon.replace('mdi:', '');
+                        const computedStyle = window.getComputedStyle(this);
+                        const size = computedStyle.getPropertyValue('--mdc-icon-size').trim() || '24px';
+                        const color = computedStyle.color || 'currentColor';
+
+                        try {
+                            const response = await fetch(`https://api.iconify.design/mdi/${iconName}.svg?color=${encodeURIComponent(color)}&width=${size}&height=${size}`);
+                            if (response.ok) {
+                                const svg = await response.text();
+                                this.innerHTML = svg;
+                            } else {
+                                this.innerHTML = `<span style="font-size: ${size};">❓</span>`;
+                            }
+                        } catch (e) {
+                            this.innerHTML = `<span style="font-size: ${size};">❓</span>`;
+                        }
+                    }
+                }
+            }
+
+            if (!customElements.get('ha-icon')) {
+                customElements.define('ha-icon', HaIcon);
+            }
+        </script>
+        <style>
+            :root {
+                --primary-color: #03a9f4;
+                --accent-color: #ff9800;
+                --primary-background-color: #fafafa;
+                --secondary-background-color: #e0e0e0;
+                --ha-card-background: #fff;
+                --ha-card-box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.12);
+                --primary-text-color: #212121;
+                --secondary-text-color: #757575;
+                --divider-color: #e0e0e0;
+                --text-primary-color: #fff;
+                --info-color: #2196f3;
+                --success-color: #43a047;
+                --warning-color: #fb8c00;
+                --error-color: #c0392b;
+            }
+            body {
+                background: #fafafa;
+                font-family: sans-serif;
+                margin: 0;
+                padding: 2em;
+            }
+            .container {
+                display: flex;
+                gap: 2em;
+                max-width: 1400px;
+                margin: 0 auto;
+                align-items: flex-start;
+            }
+            .editor-column {
+                flex: 1 1 460px;
+                min-width: 400px;
+                max-width: 460px;
+            }
+            .preview-column {
+                flex: 0 1 400px;
+                min-width: 300px;
+                position: sticky;
+                top: 2em;
+            }
+            h2 {
+                color: var(--primary-text-color);
+                margin-top: 0;
+                margin-bottom: 1em;
+            }
+            lens-map-card-editor {
+                display: block;
+            }
+            lens-map-card {
+                display: block;
+            }
+            @media (max-width: 900px) {
+                .container {
+                    flex-direction: column;
+                }
+                .preview-column {
+                    position: static;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="editor-column">
+                <h2>Editor</h2>
+                <lens-map-card-editor id="lensmapeditor"></lens-map-card-editor>
+            </div>
+
+            <div class="preview-column">
+                <h2>Card Preview</h2>
+                <lens-map-card id="lensmapcard"></lens-map-card>
+            </div>
+        </div>
+
+        <script>
+            const dummyHass = {
+                states: {
+                    'person.john_doe': {
+                        state: 'home',
+                        attributes: {
+                            friendly_name: 'John Doe',
+                            entity_picture: 'https://i.pravatar.cc/150?img=12',
+                            latitude: 63.4305,
+                            longitude: 10.3951
+                        }
+                    },
+                    'person.jane_doe': {
+                        state: 'away',
+                        attributes: {
+                            friendly_name: 'Jane Doe',
+                            entity_picture: 'https://i.pravatar.cc/150?img=45',
+                            latitude: 63.4100,
+                            longitude: 10.4200
+                        }
+                    },
+                    'person.bob_doe': {
+                        state: 'home',
+                        attributes: {
+                            friendly_name: 'Bob Doe',
+                            entity_picture: 'https://i.pravatar.cc/150?img=8',
+                            latitude: 63.4041,
+                            longitude: 10.4301
+                        }
+                    },
+                    'person.alice_doe': {
+                        state: 'unknown',
+                        attributes: {
+                            friendly_name: 'Alice Doe',
+                            entity_picture: 'https://i.pravatar.cc/150?img=9'
+                        }
+                    },
+                    'sensor.john_phone_battery': {
+                        state: '75',
+                        attributes: { friendly_name: 'John Phone Battery' }
+                    },
+                    'sensor.jane_phone_battery': {
+                        state: '45',
+                        attributes: { friendly_name: 'Jane Phone Battery' }
+                    },
+                    'zone.home': {
+                        state: 'zoning',
+                        attributes: {
+                            friendly_name: 'Home',
+                            latitude: 63.4041,
+                            longitude: 10.4301,
+                            radius: 100
+                        }
+                    },
+                    'zone.office': {
+                        state: 'zoning',
+                        attributes: {
+                            friendly_name: 'Office',
+                            latitude: 63.4305,
+                            longitude: 10.3951,
+                            radius: 100
+                        }
+                    },
+                    'zone.gym': {
+                        state: 'zoning',
+                        attributes: {
+                            friendly_name: 'Gym',
+                            latitude: 63.4100,
+                            longitude: 10.4100,
+                            radius: 50
+                        }
+                    }
+                }
+            };
+
+            const cardConfig = {
+                type: 'custom:lens-map-card',
+                title: 'Lens Map',
+                show_title: true,
+                current_user: 'person.john_doe',
+                persons: [
+                    {
+                        entity_id: 'person.john_doe',
+                        name: 'John',
+                        namedSensors: {
+                            phone_battery: { entity_id: 'sensor.john_phone_battery' }
+                        }
+                    },
+                    {
+                        entity_id: 'person.jane_doe',
+                        name: 'Jane',
+                        namedSensors: {
+                            phone_battery: { entity_id: 'sensor.jane_phone_battery' }
+                        },
+                        displayRules: [
+                            { id: 'rule1', priority: 1, sensor: 'distance', operator: '<', value: '10000', enabled: true }
+                        ]
+                    },
+                    {
+                        entity_id: 'person.bob_doe',
+                        name: 'Bob'
+                    },
+                    {
+                        entity_id: 'person.alice_doe',
+                        name: 'Alice',
+                        displayRules: [
+                            { id: 'never', priority: 1, sensor: 'state', operator: '=', value: 'home', enabled: false }
+                        ]
+                    }
+                ],
+                display_rules: [
+                    { id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '5000', enabled: true }
+                ],
+                map: {
+                    type: 'color',
+                    opacity: 1
+                },
+                zoom: {
+                    level: 13,
+                    auto_level: false
+                },
+                center: {
+                    use_current_user: true
+                }
+            };
+
+            async function initComponents() {
+                try {
+                    await window.customElements.whenDefined('lens-map-card');
+                    await window.customElements.whenDefined('lens-map-card-editor');
+
+                    const card = document.getElementById('lensmapcard');
+                    const editor = document.getElementById('lensmapeditor');
+
+                    card.setConfig(cardConfig);
+                    card.hass = dummyHass;
+
+                    editor.hass = dummyHass;
+                    if (editor.setConfig) {
+                        editor.setConfig(cardConfig);
+                    }
+
+                    editor.addEventListener('config-changed', (event) => {
+                        console.log('Config changed:', event.detail.config);
+                        card.setConfig(event.detail.config);
+                        card.requestUpdate();
+                    });
+
+                    console.log('Card and editor initialized with config:', cardConfig);
+                } catch (e) {
+                    console.error("Error initializing components:", e);
+                    document.getElementById('lensmapcard').innerHTML =
+                        `<div style="padding: 20px; color: red;">Error: ${e.message}</div>`;
+                }
+            }
+
+            initComponents();
+        </script>
+    </body>
+</html>

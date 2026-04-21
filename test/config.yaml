@@ -1,0 +1,24 @@
+type: custom:lens-map-card
+title: Lens Map
+show_title: true
+current_user: person.john_doe
+persons:
+  - entity_id: person.john_doe
+    name: John Doe
+  - entity_id: person.jane_doe
+    name: Jane Doe
+  - entity_id: person.bob_doe
+    name: Bob Doe
+display_rules:
+  - id: default
+    priority: 1
+    sensor: distance
+    operator: <
+    value: "5000"
+    enabled: true
+map:
+  type: color
+zoom:
+  level: 13
+center:
+  use_current_user: true

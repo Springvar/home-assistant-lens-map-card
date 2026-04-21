@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Lens Map Card Editor Demo</title>
+        <script type="module" src="../dist/home-assistant-lens-map-card.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+        <style>
+            :root {
+                --primary-color: #03a9f4;
+                --accent-color: #ff9800;
+                --primary-background-color: #fafafa;
+                --secondary-background-color: #e0e0e0;
+                --ha-card-background: #fff;
+                --ha-card-box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.12);
+                --primary-text-color: #212121;
+                --secondary-text-color: #757575;
+                --divider-color: #e0e0e0;
+                --text-primary-color: #fff;
+            }
+            body {
+                background: #fafafa;
+                font-family: sans-serif;
+                margin: 0;
+                padding: 2em;
+            }
+            lens-map-card-editor {
+                max-width: 600px;
+                display: block;
+                margin: 2em auto;
+            }
+        </style>
+    </head>
+    <body>
+        <lens-map-card-editor id="lensmapeditor"></lens-map-card-editor>
+        <script>
+            const dummyHass = {
+                states: {
+                    'person.john_doe': {
+                        state: 'home',
+                        attributes: { friendly_name: 'John Doe' }
+                    },
+                    'person.jane_doe': {
+                        state: 'away',
+                        attributes: { friendly_name: 'Jane Doe' }
+                    },
+                    'person.bob_doe': {
+                        state: 'home',
+                        attributes: { friendly_name: 'Bob Doe' }
+                    },
+                    'sensor.john_phone_battery': {
+                        state: '75',
+                        attributes: { friendly_name: 'John Phone Battery' }
+                    },
+                    'sensor.jane_phone_battery': {
+                        state: '45',
+                        attributes: { friendly_name: 'Jane Phone Battery' }
+                    },
+                    'zone.home': {
+                        attributes: { friendly_name: 'Home' }
+                    },
+                    'zone.office': {
+                        attributes: { friendly_name: 'Office' }
+                    }
+                }
+            };
+
+            function getConfigFile() {
+                const params = new URLSearchParams(window.location.search);
+                const cfgName = params.get('config');
+                return cfgName ? `${cfgName}.yaml` : 'config.yaml';
+            }
+
+            fetch(getConfigFile())
+                .then(resp => {
+                    if (!resp.ok) throw new Error("Config file not found");
+                    return resp.text();
+                })
+                .then(yamlSource => {
+                    const cardConfig = window.jsyaml.load(yamlSource);
+                    window.customElements.whenDefined('lens-map-card-editor').then(() => {
+                        const editor = document.getElementById('lensmapeditor');
+                        editor.hass = dummyHass;
+                        if (editor.setConfig) {
+                            editor.setConfig(cardConfig);
+                        }
+                    });
+                })
+                .catch(e => {
+                    console.error("Error loading config:", e);
+                });
+        </script>
+    </body>
+</html>

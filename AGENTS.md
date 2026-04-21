@@ -31,6 +31,21 @@
 - **build.yml**: Builds and uploads `dist/` as artifact
 - **release.yml**: Creates HACS-compatible zip on GitHub release
 
+## Test Pages
+
+Local browser testing via Vite dev server:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server (opens combined.html) |
+
+Test pages in `test/`:
+- `combined.html` - Editor + Card side by side
+- `editor.html` - Editor only
+- `card.html` - Card only
+
+Load custom configs: `?config=filename` (without .yaml)
+
 ## Notes
 
 - No separate lint/typecheck scripts - CI just runs test then build
