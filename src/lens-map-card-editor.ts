@@ -256,6 +256,42 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _centerTypeChanged(e: Event) {
+        const value = (e.target as HTMLSelectElement).value as 'user' | 'visible' | 'home' | 'fixed' | 'person';
+        this._config = { ...this._config, center: { ...this._config.center, type: value } };
+        this._emitConfigChanged();
+    }
+
+    private _centerHomeZoneChanged(e: Event) {
+        const value = (e.target as HTMLSelectElement).value;
+        this._config = { ...this._config, center: { ...this._config.center, home_zone: value } };
+        this._emitConfigChanged();
+    }
+
+    private _centerFixedCoordinatesChanged(coordinate: 'lat' | 'lon', value: string) {
+        const fixed = { ...this._config.center?.fixed_coordinates };
+        if (coordinate === 'lat') {
+            fixed.lat = parseFloat(value) || 0;
+        } else {
+            fixed.lon = parseFloat(value) || 0;
+        }
+        this._config = { ...this._config, center: { ...this._config.center, fixed_coordinates: fixed } };
+        this._emitConfigChanged();
+    }
+
+    private _selectLocationOnMap() {
+        this.dispatchEvent(new CustomEvent('select-location', {
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    private get homeZones(): string[] {
+        if (!this.hass) return [];
+        return Object.keys(this.hass.states)
+            .filter(eid => eid.startsWith('zone.'));
+    }
+
     private _titleChanged(e: Event) {
         const value = (e.target as HTMLInputElement).value;
         this._config = { ...this._config, title: value };
@@ -447,6 +483,48 @@ export class LensMapCardEditor extends LitElement {
                             </label>
                         </div>
                         <div style="margin-top: 0.5em;">
+                            <label>Center on:</label>
+                            <select .value=${this._config.center?.type || 'user'} @change=${this._centerTypeChanged}>
+                                <option value="user">User (logged in user)</option>
+                                <option value="visible">Visible persons</option>
+                                <option value="home">Home (zone)</option>
+                                <option value="fixed">Fixed point</option>
+                                ${(this._config.persons || []).map(p => html`
+                                    <option value="person:${p.entity_id}">
+                                        ${p.name || this.hass.states[p.entity_id]?.attributes?.friendly_name || p.entity_id}
+                                    </option>
+                                `)}
+                            </select>
+                        </div>
+
+                        ${this._config.center?.type === 'home' ? html`
+                        <div style="margin-top: 0.5em;">
+                            <label>Home zone:</label>
+                            <select .value=${this._config.center?.home_zone || ''} @change=${this._centerHomeZoneChanged}>
+                                <option value="">Select zone...</option>
+                                ${this.homeZones.map(eid => html`
+                                    <option value=${eid} ?selected="${this._config.center?.home_zone === eid}">
+                                        ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                                    </option>
+                                `)}
+                            </select>
+                        </div>
+                        ` : ''}
+
+                        ${this._config.center?.type === 'fixed' ? html`
+                        <div style="margin-top: 0.5em; display: flex; gap: 0.5em; align-items: center;">
+                            <label>Coordinates:</label>
+                            <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lat || ''}
+                                   @input=${(e: Event) => this._centerFixedCoordinatesChanged('lat', (e.target as HTMLInputElement).value)}
+                                   placeholder="Lat" style="width: 100px;" />
+                            <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lon || ''}
+                                   @input=${(e: Event) => this._centerFixedCoordinatesChanged('lon', (e.target as HTMLInputElement).value)}
+                                   placeholder="Lon" style="width: 100px;" />
+                            <button @click=${this._selectLocationOnMap}>Select on map</button>
+                        </div>
+                        ` : ''}
+
+                        <div style="margin-top: 0.5em;">
                             <label>Current user (reference for distance):</label>
                             <select .value=${this._config.current_user || ''} @change=${this._currentUserChanged}>
                                 <option value="">Select...</option>
@@ -456,10 +534,6 @@ export class LensMapCardEditor extends LitElement {
                                     </option>
                                 `)}
                             </select>
-                            <label style="margin-left: 1em;">
-                                <input type="checkbox" .checked=${this._config.center?.use_current_user ?? true} @change=${this._centerUseCurrentUserChanged} />
-                                Center on user
-                            </label>
                         </div>
                     </div>
                 </details>

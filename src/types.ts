@@ -37,6 +37,9 @@ export interface ZoomConfig {
 }
 
 export interface CenterConfig {
+    type?: 'user' | 'visible' | 'home' | 'fixed' | 'person';
     entity_id?: string;
     use_current_user?: boolean;
+    home_zone?: string;
+    fixed_coordinates?: { lat: number; lon: number };
 }
