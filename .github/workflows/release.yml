@@ -53,6 +53,12 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Inject release tag as card version
+        run: |
+          TAG="${{ steps.get_tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          sed -i "s/___CARD_VERSION___/${VERSION}/" package.json
+
       - name: Build
         run: yarn build
 

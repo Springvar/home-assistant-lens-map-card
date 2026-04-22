@@ -1,6 +1,6 @@
 {
   "name": "home-assistant-lens-map-card",
-  "version": "0.1.0",
+  "version": "___CARD_VERSION___",
   "type": "module",
   "description": "Home Assistant Lovelace card to display persons on a map based on configurable display rules",
   "main": "dist/home-assistant-lens-map-card.js",
