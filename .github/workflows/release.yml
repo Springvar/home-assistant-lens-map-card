@@ -1,15 +1,29 @@
-name: Release
+name: Build and attach Vite artifact to release
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for release (e.g. v1.2.3)'
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
-  release:
+  build-and-upload:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -17,22 +31,36 @@ jobs:
           node-version: '22'
           cache: 'yarn'
 
+      - name: Cache yarn cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/yarn
+            ~/.config/yarn
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Determine tag name
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build
         run: yarn build
 
-      - name: Create HACS zip
-        run: |
-          mkdir -p release
-          cp -r dist release/
-          cp hacs.json release/
-          zip -r release.zip release/
-
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+      - name: Create or update release with assets
+        uses: softprops/action-gh-release@v1
         with:
-          files: release.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          files: |
+            dist/home-assistant-lens-map-card.js
+            README.md
+            LICENSE
