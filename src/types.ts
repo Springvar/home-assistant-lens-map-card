@@ -11,7 +11,7 @@ export interface DisplayRule {
     id: string;
     priority: number;
     sensor: string;
-    operator: '<' | '<=' | '>' | '>=' | '=' | '!=' | 'oneOf';
+    operator: '<' | '<=' | '>' | '>=' | 'is' | 'isNot' | 'oneOf' | 'notOneOf' | 'unknown' | 'known';
     value: string;
     enabled?: boolean;
     description?: string;

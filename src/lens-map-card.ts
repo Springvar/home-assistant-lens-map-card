@@ -47,22 +47,33 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number): numb
     return R * c * 1000;
 }
 
-function evaluateRule(rule: DisplayRule, sensorValue: number | string): boolean {
-    const value = parseFloat(rule.value);
-    if (isNaN(value)) {
-        if (rule.operator === '=') return String(sensorValue) === rule.value;
-        if (rule.operator === '!=') return String(sensorValue) !== rule.value;
-        if (rule.operator === 'oneOf') return rule.value.split(',').map(v => v.trim()).includes(String(sensorValue));
+function evaluateRule(rule: DisplayRule, sensorValue: number | string | null): boolean {
+    if (rule.operator === 'unknown') {
+        return sensorValue === null;
     }
+    if (rule.operator === 'known') {
+        return sensorValue !== null;
+    }
+
+    if (rule.operator === 'is' || rule.operator === 'isNot') {
+        const matches = String(sensorValue) === rule.value;
+        return rule.operator === 'is' ? matches : !matches;
+    }
+    if (rule.operator === 'oneOf' || rule.operator === 'notOneOf') {
+        const matches = rule.value.split(',').map(v => v.trim()).includes(String(sensorValue));
+        return rule.operator === 'oneOf' ? matches : !matches;
+    }
+
+    const value = parseFloat(rule.value);
+    if (isNaN(value)) return false;
     const numValue = typeof sensorValue === 'number' ? sensorValue : parseFloat(String(sensorValue));
     if (isNaN(numValue)) return false;
+
     switch (rule.operator) {
         case '<': return numValue < value;
         case '<=': return numValue <= value;
         case '>': return numValue > value;
         case '>=': return numValue >= value;
-        case '=': return numValue === value;
-        case '!=': return numValue !== value;
         default: return false;
     }
 }

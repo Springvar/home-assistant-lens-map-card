@@ -27,6 +27,29 @@ export class LensMapCardEditor extends LitElement {
         return Array.from(sensorNames).sort();
     }
 
+    private _getOperatorsForSensor(sensor: string): { value: string; label: string }[] {
+        if (sensor === 'distance') {
+            return [
+                { value: '<', label: '<' },
+                { value: '<=', label: '≤' },
+                { value: '>', label: '>' },
+                { value: '>=', label: '≥' },
+            ];
+        }
+        return [
+            { value: 'is', label: 'is' },
+            { value: 'isNot', label: 'is not' },
+            { value: 'oneOf', label: 'is one of' },
+            { value: 'notOneOf', label: 'is not one of' },
+            { value: 'unknown', label: 'is unknown' },
+            { value: 'known', label: 'is known' },
+        ];
+    }
+
+    private _shouldHideValue(sensor: string, operator: string): boolean {
+        return operator === 'unknown' || operator === 'known';
+    }
+
     setConfig(config: LensMapCardConfig) {
         this._config = {
             ...config,
@@ -387,21 +410,25 @@ export class LensMapCardEditor extends LitElement {
                                             <div>
                                                 ${(person.displayRules || []).map((rule, ridx) => html`
                                                     <div style="display: flex; gap: 0.5em; align-items: center; margin-bottom: 0.5em;">
-                                                        <select .value=${rule.sensor} @change=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'sensor', (e.target as HTMLSelectElement).value)}>
+                                                        <select .value=${rule.sensor} @change=${(e: Event) => {
+                                                            const newSensor = (e.target as HTMLSelectElement).value;
+                                                            this._updateDisplayRuleKey(idx, ridx, 'sensor', newSensor);
+                                                            const operators = this._getOperatorsForSensor(newSensor);
+                                                            if (!operators.some(op => op.value === rule.operator)) {
+                                                                this._updateDisplayRuleKey(idx, ridx, 'operator', operators[0].value);
+                                                            }
+                                                        }}>
                                                             <option value="distance" ?selected="${rule.sensor === 'distance'}">distance</option>
                                                             <option value="state" ?selected="${rule.sensor === 'state'}">state</option>
                                                             ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}" ?selected="${rule.sensor === sn}">${sn}</option>`)}
                                                         </select>
                                                         <select .value=${rule.operator} @change=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'operator', (e.target as HTMLSelectElement).value)}>
-                                                            <option value="<" ?selected="${rule.operator === '<'}"><</option>
-                                                            <option value="<=" ?selected="${rule.operator === '<='}">≤</option>
-                                                            <option value=">" ?selected="${rule.operator === '>'}">></option>
-                                                            <option value=">=" ?selected="${rule.operator === '>='}">≥</option>
-                                                            <option value="=" ?selected="${rule.operator === '='}">=</option>
-                                                            <option value="!=" ?selected="${rule.operator === '!='}">≠</option>
+                                                            ${this._getOperatorsForSensor(rule.sensor).map(op => html`<option value="${op.value}" ?selected="${rule.operator === op.value}">${op.label}</option>`)}
                                                         </select>
-                                                        <input type="text" .value=${rule.value} placeholder="value" style="width: 80px;"
-                                                            @input=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'value', (e.target as HTMLInputElement).value)} />
+                                                        ${this._shouldHideValue(rule.sensor, rule.operator) ? '' : html`
+                                                            <input type="text" .value=${rule.value} placeholder="value" style="width: 80px;"
+                                                                @input=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'value', (e.target as HTMLInputElement).value)} />
+                                                        `}
                                                         <button class="icon-button" @click=${() => this._removeDisplayRule(idx, ridx)} title="Remove">🗑️</button>
                                                     </div>
                                                 `)}
@@ -430,15 +457,12 @@ export class LensMapCardEditor extends LitElement {
                                 ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}">${sn}</option>`)}
                             </select>
                             <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.operator || '<'} @change=${this._defaultRuleOperatorChanged}>
-                                <option value="<" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<'}"><</option>
-                                <option value="<=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<='}">≤</option>
-                                <option value=">" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>'}">></option>
-                                <option value=">=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>='}">≥</option>
-                                <option value="=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '='}">=</option>
-                                <option value="!=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '!='}">≠</option>
+                                ${this._getOperatorsForSensor(this._config.display_rules?.find(r => r.id === 'default')?.sensor || 'distance').map(op => html`<option value="${op.value}" ?selected="${(this._config.display_rules?.find(r => r.id === 'default')?.operator || '<') === op.value}">${op.label}</option>`)}
                             </select>
-                            <input type="text" .value=${this._config.display_rules?.find(r => r.id === 'default')?.value || '1000'} @input=${this._defaultRuleValueChanged} placeholder="value" style="width: 80px;" />
-                            <span>m</span>
+                            ${this._shouldHideValue(this._config.display_rules?.find(r => r.id === 'default')?.sensor || 'distance', this._config.display_rules?.find(r => r.id === 'default')?.operator || '<') ? '' : html`
+                                <input type="text" .value=${this._config.display_rules?.find(r => r.id === 'default')?.value || '1000'} @input=${this._defaultRuleValueChanged} placeholder="value" style="width: 80px;" />
+                                <span>m</span>
+                            `}
                         </div>
                     </div>
                 </details>
