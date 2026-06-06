@@ -3,7 +3,7 @@ import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
 import type { PersonSensors } from './types';
 
-const VALID_MAPS = ['bw', 'color', 'dark', 'outlines', 'system'];
+const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
 const VALID_ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 export class LensMapCardEditor extends LitElement {
@@ -449,14 +449,19 @@ export class LensMapCardEditor extends LitElement {
                     <summary><h3 style="display: inline;">Map Configuration</h3></summary>
                     <div style="margin-left: 1em;">
                         <div>
-                            <label>Map type:</label>
-                            <select .value=${this._config.map?.type || 'color'} @change=${this._mapTypeChanged}>
-                                <option value="bw">Black & White (Stamen)</option>
-                                <option value="color">Color (OSM)</option>
-                                <option value="dark">Dark (CartoDB)</option>
-                                <option value="outlines">Outlines (Stamen)</option>
-                                <option value="system">System (auto-detect)</option>
-                            </select>
+                        <label>Map type:</label>
+                             <select .value=${this._config.map?.type || 'color'} @change=${this._mapTypeChanged}>
+                                 <option value="none">None</option>
+                                 <option value="system">System (auto dark/light)</option>
+                                 <option value="bw">Black & White (Stadia, requires API key)</option>
+                                 <option value="light">Light (CartoDB)</option>
+                                 <option value="color">Color (OSM)</option>
+                                 <option value="dark">Dark (CartoDB)</option>
+                                 <option value="voyager">Voyager (CartoDB)</option>
+                                 <option value="satellite">Satellite (Esri)</option>
+                                 <option value="topo">Topographic (OpenTopoMap)</option>
+                                 <option value="outlines">Outlines (Stadia, requires API key)</option>
+                             </select>
                         </div>
                         <div>
                             <label>Opacity:</label>

@@ -15,7 +15,7 @@ export interface LensMapCardConfig {
     show_title?: boolean;
 }
 
-const VALID_MAPS = new Set(['bw', 'color', 'dark', 'outlines', 'system']);
+const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);
 
 function getEntityState(hass: any, entityId: string): string {
     return hass?.states[entityId]?.state || 'unavailable';
@@ -115,9 +115,7 @@ class LensMapCard extends LitElement {
 
         if (!oldHass && value) {
             this._loadLeaflet();
-        }
-
-        if (oldHass && value && this._leafletLoaded) {
+        } else if (oldHass && value && this._leafletLoaded) {
             this._updateMarkers();
         }
 
@@ -126,6 +124,13 @@ class LensMapCard extends LitElement {
 
     get hass() {
         return this._hass;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (this._leafletLoaded && !this._leafletMap) {
+            this._initLeafletMap();
+        }
     }
 
     setConfig(config: LensMapCardConfig) {
@@ -147,7 +152,7 @@ class LensMapCard extends LitElement {
     }
 
     private async _loadLeaflet() {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || this._leafletLoaded) return;
 
         if (window.L) {
             this._leafletLoaded = true;
@@ -173,16 +178,17 @@ class LensMapCard extends LitElement {
         if (!window.L || !this._hass) return;
 
         const mapContainer = this.shadowRoot?.getElementById('map-container') as HTMLElement;
-        if (!mapContainer) return;
+        if (!mapContainer) {
+            requestAnimationFrame(() => this._initLeafletMap());
+            return;
+        }
+
+        if (this._leafletMap) return;
 
         const currentUserLocation = this._getCurrentUserLocation();
         const centerLat = currentUserLocation?.latitude || 0;
         const centerLon = currentUserLocation?.longitude || 0;
         const zoomLevel = this.zoom?.level ?? 13;
-
-        if (this._leafletMap) {
-            this._leafletMap.remove();
-        }
 
         this._leafletMap = window.L.map(mapContainer, {
             center: [centerLat, centerLon],
@@ -209,13 +215,18 @@ class LensMapCard extends LitElement {
 
     private _addTileLayer() {
         if (!this._leafletMap || !this.map) return;
+        if (this.map.type === 'none') return;
 
         const type = this.map.type || 'color';
         const TILE_LAYERS: Record<string, [string, any]> = {
-            bw: ['https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png', { attribution: 'Map tiles by Staden Design' }],
+            bw: ['https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png', { attribution: 'Map tiles by Stamen Design, CC BY 3.0' }],
+            light: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
             color: ['https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', subdomains: ['a', 'b', 'c'] }],
-            dark: ['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB' }],
-            outlines: ['https://tiles.stadiamaps.com/tiles/stamen_toner_lines/{z}/{x}/{y}.png', { attribution: 'Map tiles by Staden Design' }],
+            dark: ['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
+            voyager: ['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
+            satellite: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '&copy; Esri, Maxar, Earthstar Geographics' }],
+            topo: ['https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenTopoMap, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c'] }],
+            outlines: ['https://tiles.stadiamaps.com/tiles/stamen_toner_lines/{z}/{x}/{y}.png', { attribution: 'Map tiles by Stamen Design, hosted by Stadia Maps' }],
             system: ['', {}]
         };
 
@@ -230,12 +241,21 @@ class LensMapCard extends LitElement {
             }
         }
 
-        const [url, opts] = TILE_LAYERS[resolvedType] || TILE_LAYERS.color;
+        const config = TILE_LAYERS[resolvedType];
+        if (!config) return;
+        const [url, opts] = config;
+        let tileLayer: any;
         if (url && this.map.api_key) {
-            this._leafletMap.addLayer(window.L.tileLayer(url + '?api_key=' + this.map.api_key, opts));
+            tileLayer = window.L.tileLayer(url + '?api_key=' + this.map.api_key, opts);
         } else if (url) {
-            this._leafletMap.addLayer(window.L.tileLayer(url, opts));
+            tileLayer = window.L.tileLayer(url, opts);
+        } else {
+            return;
         }
+        if (this.map.opacity != null) {
+            tileLayer.setOpacity(this.map.opacity);
+        }
+        this._leafletMap.addLayer(tileLayer);
     }
 
     private _updateMarkers() {

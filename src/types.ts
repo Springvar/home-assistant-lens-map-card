@@ -26,7 +26,7 @@ export interface PersonConfig {
 }
 
 export interface MapConfig {
-    type?: 'bw' | 'color' | 'dark' | 'outlines' | 'system';
+    type?: 'none' | 'system' | 'bw' | 'light' | 'color' | 'dark' | 'voyager' | 'satellite' | 'topo' | 'outlines';
     opacity?: number;
     api_key?: string;
 }
