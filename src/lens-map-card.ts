@@ -133,6 +133,7 @@ class LensMapCard extends LitElement {
     }
 
     setConfig(config: LensMapCardConfig) {
+        config = config || {};
         this.persons = config.persons || [];
         this.current_user = config.current_user || '';
         this.display_rules = config.display_rules || [
@@ -347,7 +348,7 @@ if (typeof window !== 'undefined') {
     (window as any).customCards.push({
         type: 'lens-map-card',
         name: 'Lens Map Card',
-        preview: false,
+        preview: true,
         description: 'A map card showing persons based on configurable display rules.'
     });
 }

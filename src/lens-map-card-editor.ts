@@ -28,14 +28,15 @@ export class LensMapCardEditor extends LitElement {
     }
 
     setConfig(config: LensMapCardConfig) {
+        const safeConfig = config || { persons: [] };
         this._config = {
-            ...config,
-            display_rules: config.display_rules || [
+            ...safeConfig,
+            display_rules: safeConfig.display_rules || [
                 { id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }
             ],
-            map: config.map || { type: 'color', opacity: 1 },
-            zoom: config.zoom || { level: 10, auto_level: false },
-            center: config.center || { use_current_user: true }
+            map: safeConfig.map || { type: 'color', opacity: 1 },
+            zoom: safeConfig.zoom || { level: 10, auto_level: false },
+            center: safeConfig.center || { use_current_user: true }
         };
         this.requestUpdate();
     }
