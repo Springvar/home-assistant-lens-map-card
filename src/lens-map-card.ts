@@ -84,6 +84,7 @@ class LensMapCard extends LitElement {
     private _resizeObserver: ResizeObserver | null = null;
     private _mapInitRetries = 0;
     private _initScheduled = false;
+    private _mapInitialized = false;
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -277,6 +278,7 @@ class LensMapCard extends LitElement {
         }
 
         this._setupResizeObserver(mapContainer);
+        this._mapInitialized = true;
     }
 
     private _fitMapToVisibleMarkers() {
@@ -458,7 +460,7 @@ class LensMapCard extends LitElement {
             this._markers.set(person.entity_id, marker);
         }
 
-        if (this.center?.type === 'visible') {
+        if (this.center?.type === 'visible' && !this._mapInitialized) {
             this._fitMapToVisibleMarkers();
         }
     }
