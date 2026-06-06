@@ -165,18 +165,8 @@ class LensMapCard extends LitElement {
         }
     }
 
-    private async _loadLeaflet() {
+    private _loadLeaflet() {
         if (typeof window === 'undefined' || this._leafletLoaded) return;
-        const shadowRoot = this.shadowRoot;
-        if (!shadowRoot) return;
-
-        if (!shadowRoot.querySelector('#leaflet-css-loader')) {
-            const link = document.createElement('link');
-            link.id = 'leaflet-css-loader';
-            link.rel = 'stylesheet';
-            link.href = 'https://unpkg.com/leaflet/dist/leaflet.css';
-            shadowRoot.appendChild(link);
-        }
 
         if (window.L) {
             this._leafletLoaded = true;
@@ -184,7 +174,7 @@ class LensMapCard extends LitElement {
             return;
         }
 
-        if (!shadowRoot.querySelector('#leaflet-js-loader')) {
+        if (!document.getElementById('leaflet-js-loader')) {
             const script = document.createElement('script');
             script.id = 'leaflet-js-loader';
             script.src = 'https://unpkg.com/leaflet/dist/leaflet.js';
@@ -196,7 +186,13 @@ class LensMapCard extends LitElement {
                 script.remove();
                 console.error('[LensMap] Leaflet script load failed');
             };
-            shadowRoot.appendChild(script);
+            if (document.head) {
+                document.head.appendChild(script);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.head.appendChild(script);
+                });
+            }
         } else {
             const poll = setInterval(() => {
                 if (window.L) {
@@ -397,6 +393,7 @@ class LensMapCard extends LitElement {
 
     render() {
         return html`
+            <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
             <ha-card>
                 ${this.show_title ? html`<div class="card-header">${this.title}</div>` : ''}
                 <div id="map-container" class="map-container"></div>
