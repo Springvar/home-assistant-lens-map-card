@@ -1,15 +1,5 @@
 {
   "name": "Lens Map Card",
-  "description": "A Home Assistant Lovelace card to display persons on a map based on configurable display rules.",
-  "homepage": "https://github.com/anomalyco/home-assistant-lens-map-card",
-  "rendered": {
-    "card": true
-  },
-  "registry": [
-    {
-      "type": "grid",
-      "url": "/cards/lens-map"
-    }
-  ],
-  "local": false
+  "filename": "home-assistant-lens-map-card.js",
+  "description": "A Home Assistant Lovelace card to display persons on a map based on configurable display rules."
 }

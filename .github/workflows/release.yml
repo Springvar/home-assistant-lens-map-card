@@ -28,10 +28,8 @@ jobs:
 
       - name: Create HACS zip
         run: |
-          mkdir -p release
-          cp -r dist release/
-          cp hacs.json release/
-          zip -r release.zip release/
+          cp dist/home-assistant-lens-map-card.js .
+          zip -r release.zip home-assistant-lens-map-card.js hacs.json
 
       - name: Upload release asset
         env:
