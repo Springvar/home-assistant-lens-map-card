@@ -46,9 +46,10 @@ export class LensMapCardEditor extends LitElement {
         const entityId = select.value;
         if (!entityId) return;
 
+        const filteredRules = this._config.display_rules?.filter(r => r.id !== 'default');
         const newPerson: PersonConfig = {
             entity_id: entityId,
-            displayRules: this._config.display_rules?.filter(r => r.id !== 'default') || []
+            ...(filteredRules?.length ? { displayRules: filteredRules } : {})
         };
 
         this._config = {

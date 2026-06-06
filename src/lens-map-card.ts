@@ -410,10 +410,27 @@ class LensMapCard extends LitElement {
             const location = getLocation(this._hass, person.entity_id);
             if (!location) continue;
 
-            const name = person.name || this._hass.states[person.entity_id]?.attributes?.friendly_name || person.entity_id;
-            const entityState = this._hass.states[person.entity_id]?.state || 'unknown';
+            const stateObj = this._hass.states[person.entity_id];
+            const name = person.name || stateObj?.attributes?.friendly_name || person.entity_id;
+            const entityState = stateObj?.state || 'unknown';
+
+            const pictureUrl = stateObj?.attributes?.entity_picture;
+            const icon = pictureUrl
+                ? window.L.divIcon({
+                    html: `<img src="${this._hass.hassUrl(pictureUrl)}" style="width:40px;height:40px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);object-fit:cover;" />`,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20],
+                    className: ''
+                })
+                : window.L.divIcon({
+                    html: `<div style="width:36px;height:36px;border-radius:50%;background:#03a9f4;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold;">${name.charAt(0).toUpperCase()}</div>`,
+                    iconSize: [36, 36],
+                    iconAnchor: [18, 18],
+                    className: ''
+                });
 
             const marker = window.L.marker([location.latitude, location.longitude], {
+                icon,
                 title: name
             }).addTo(this._leafletMap);
 
@@ -427,7 +444,7 @@ class LensMapCard extends LitElement {
     }
 
     private _evaluatePersonDisplayRules(person: PersonConfig, _currentLat?: number, _currentLon?: number): boolean {
-        const rules = person.displayRules || this.display_rules || [];
+        const rules = (person.displayRules?.length ? person.displayRules : this.display_rules) || [];
         const enabledRules = rules.filter(r => r.enabled !== false).sort((a, b) => b.priority - a.priority);
 
         if (enabledRules.length === 0) return true;
