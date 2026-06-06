@@ -81,6 +81,8 @@ class LensMapCard extends LitElement {
     @state() private _leafletLoaded = false;
     @state() private _leafletMap: any = null;
     @state() private _markers: Map<string, any> = new Map();
+    private _resizeObserver: ResizeObserver | null = null;
+    private _mapInitRetries = 0;
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -133,6 +135,18 @@ class LensMapCard extends LitElement {
         }
     }
 
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
+        }
+        if (this._leafletMap) {
+            this._leafletMap.remove();
+            this._leafletMap = null;
+        }
+    }
+
     setConfig(config: LensMapCardConfig) {
         config = config || {};
         this.persons = config.persons || [];
@@ -153,6 +167,16 @@ class LensMapCard extends LitElement {
 
     private async _loadLeaflet() {
         if (typeof window === 'undefined' || this._leafletLoaded) return;
+        const shadowRoot = this.shadowRoot;
+        if (!shadowRoot) return;
+
+        if (!shadowRoot.querySelector('#leaflet-css-loader')) {
+            const link = document.createElement('link');
+            link.id = 'leaflet-css-loader';
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet/dist/leaflet.css';
+            shadowRoot.appendChild(link);
+        }
 
         if (window.L) {
             this._leafletLoaded = true;
@@ -160,30 +184,50 @@ class LensMapCard extends LitElement {
             return;
         }
 
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet/dist/leaflet.css';
-        document.head.appendChild(link);
-
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet/dist/leaflet.js';
-        script.onload = () => {
-            this._leafletLoaded = true;
-            this._initLeafletMap();
-        };
-        document.head.appendChild(script);
+        if (!shadowRoot.querySelector('#leaflet-js-loader')) {
+            const script = document.createElement('script');
+            script.id = 'leaflet-js-loader';
+            script.src = 'https://unpkg.com/leaflet/dist/leaflet.js';
+            script.onload = () => {
+                this._leafletLoaded = true;
+                this._initLeafletMap();
+            };
+            script.onerror = () => {
+                script.remove();
+                console.error('[LensMap] Leaflet script load failed');
+            };
+            shadowRoot.appendChild(script);
+        } else {
+            const poll = setInterval(() => {
+                if (window.L) {
+                    clearInterval(poll);
+                    this._leafletLoaded = true;
+                    this._initLeafletMap();
+                }
+            }, 50);
+        }
     }
 
     private _initLeafletMap() {
         if (!window.L || !this._hass) return;
 
         const mapContainer = this.shadowRoot?.getElementById('map-container') as HTMLElement;
-        if (!mapContainer) {
-            requestAnimationFrame(() => this._initLeafletMap());
-            return;
-        }
+        if (!mapContainer) return;
 
         if (this._leafletMap) return;
+
+        void mapContainer.offsetHeight;
+        const widthPx = mapContainer.offsetWidth;
+        const heightPx = mapContainer.offsetHeight;
+
+        if (widthPx === 0 || heightPx === 0) {
+            if (this._mapInitRetries < 30) {
+                this._mapInitRetries++;
+                setTimeout(() => this._initLeafletMap(), 50);
+            }
+            return;
+        }
+        this._mapInitRetries = 0;
 
         const currentUserLocation = this._getCurrentUserLocation();
         const centerLat = currentUserLocation?.latitude || 0;
@@ -200,6 +244,28 @@ class LensMapCard extends LitElement {
 
         this._addTileLayer();
         this._updateMarkers();
+
+        this._setupResizeObserver(mapContainer);
+    }
+
+    private _setupResizeObserver(container: HTMLElement) {
+        if (this._resizeObserver) this._resizeObserver.disconnect();
+        this._resizeObserver = new ResizeObserver(() => {
+            try {
+                if (this._leafletMap) {
+                    requestAnimationFrame(() => {
+                        try {
+                            this._leafletMap.invalidateSize({ pan: false });
+                        } catch (e) {
+                            console.error('[LensMap] invalidateSize error:', e);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('[LensMap] ResizeObserver error:', e);
+            }
+        });
+        this._resizeObserver.observe(container);
     }
 
     private _getCurrentUserLocation(): { latitude: number; longitude: number } | null {
