@@ -105,7 +105,7 @@ class LensMapCard extends LitElement {
             display_rules: [{ id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }],
             map: { type: 'color' },
             zoom: { level: 10 },
-            center: { use_current_user: true },
+            center: { type: 'user' },
             title: 'Lens Map',
             show_title: true
         };
@@ -117,8 +117,12 @@ class LensMapCard extends LitElement {
         this._hass = value;
 
         if (!oldHass && value) {
+            this._detectCurrentUser();
             this._loadLeaflet();
         } else if (oldHass && value && this._leafletLoaded) {
+            if (!this.current_user) {
+                this._detectCurrentUser();
+            }
             this._updateMarkers();
         }
 
@@ -127,6 +131,16 @@ class LensMapCard extends LitElement {
 
     get hass() {
         return this._hass;
+    }
+
+    private _detectCurrentUser() {
+        if (this.current_user || !this._hass?.user?.id) return;
+        for (const [entityId, stateObj] of Object.entries(this._hass.states)) {
+            if (entityId.startsWith('person.') && (stateObj as any)?.attributes?.user_id === this._hass.user.id) {
+                this.current_user = entityId;
+                return;
+            }
+        }
     }
 
     connectedCallback() {
@@ -160,7 +174,7 @@ class LensMapCard extends LitElement {
         ];
         this.map = config.map || { type: 'color', opacity: 1 };
         this.zoom = config.zoom || { level: 10, auto_level: false };
-        this.center = config.center || { use_current_user: true };
+        this.center = config.center || { type: 'user' };
         this.title = config.title || 'Lens Map';
         this.show_title = config.show_title !== false;
 
@@ -231,9 +245,9 @@ class LensMapCard extends LitElement {
     }
 
     private _initLeafletMap(mapContainer: HTMLElement) {
-        const currentUserLocation = this._getCurrentUserLocation();
-        const centerLat = currentUserLocation?.latitude || 0;
-        const centerLon = currentUserLocation?.longitude || 0;
+        const mapCenter = this._getMapCenter();
+        const centerLat = mapCenter?.latitude || 0;
+        const centerLon = mapCenter?.longitude || 0;
         const zoomLevel = this.zoom?.level ?? 13;
 
         this._leafletMap = window.L.map(mapContainer, {
@@ -246,7 +260,21 @@ class LensMapCard extends LitElement {
 
         this._addTileLayer();
         this._updateMarkers();
+
+        if (this.center?.type === 'visible') {
+            this._fitMapToVisibleMarkers();
+        }
+
         this._setupResizeObserver(mapContainer);
+    }
+
+    private _fitMapToVisibleMarkers() {
+        if (!this._leafletMap) return;
+        const markers = Array.from(this._markers.values());
+        if (markers.length === 0) return;
+
+        const group = window.L.featureGroup(markers);
+        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false });
     }
 
     private _setupResizeObserver(container: HTMLElement) {
@@ -269,14 +297,38 @@ class LensMapCard extends LitElement {
         this._resizeObserver.observe(container);
     }
 
-    private _getCurrentUserLocation(): { latitude: number; longitude: number } | null {
-        const entityId = this.center?.entity_id || this.current_user;
-        if (this.center?.use_current_user && this.current_user) {
+    private _getMapCenter(): { latitude: number; longitude: number } | null {
+        const centerType = this.center?.type || 'user';
+
+        if (centerType === 'user' && this.current_user) {
             return getLocation(this._hass, this.current_user);
         }
+
+        if (centerType === 'home' && this.center?.home_zone) {
+            return getLocation(this._hass, this.center.home_zone);
+        }
+
+        if (centerType === 'fixed' && this.center?.fixed_coordinates) {
+            const { lat, lon } = this.center.fixed_coordinates;
+            if (typeof lat === 'number' && typeof lon === 'number') {
+                return { latitude: lat, longitude: lon };
+            }
+        }
+
+        if (centerType === 'visible') {
+            return null;
+        }
+
+        if (centerType?.startsWith('person:')) {
+            const entityId = centerType.slice(7);
+            return getLocation(this._hass, entityId);
+        }
+
+        const entityId = this.center?.entity_id || this.current_user;
         if (entityId) {
             return getLocation(this._hass, entityId);
         }
+
         return null;
     }
 
@@ -351,6 +403,10 @@ class LensMapCard extends LitElement {
 
             marker.bindPopup(`<strong>${name}</strong><br>${entityState}`);
             this._markers.set(person.entity_id, marker);
+        }
+
+        if (this.center?.type === 'visible') {
+            this._fitMapToVisibleMarkers();
         }
     }
 

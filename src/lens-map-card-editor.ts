@@ -36,7 +36,7 @@ export class LensMapCardEditor extends LitElement {
             ],
             map: safeConfig.map || { type: 'color', opacity: 1 },
             zoom: safeConfig.zoom || { level: 10, auto_level: false },
-            center: safeConfig.center || { use_current_user: true }
+            center: safeConfig.center || { type: 'user' }
         };
         this.requestUpdate();
     }
@@ -242,18 +242,6 @@ export class LensMapCardEditor extends LitElement {
     private _zoomAutoChanged(e: Event) {
         const checked = (e.target as HTMLInputElement).checked;
         this._config = { ...this._config, zoom: { ...this._config.zoom, auto_level: checked } };
-        this._emitConfigChanged();
-    }
-
-    private _currentUserChanged(e: Event) {
-        const value = (e.target as HTMLSelectElement).value;
-        this._config = { ...this._config, current_user: value };
-        this._emitConfigChanged();
-    }
-
-    private _centerUseCurrentUserChanged(e: Event) {
-        const checked = (e.target as HTMLInputElement).checked;
-        this._config = { ...this._config, center: { ...this._config.center, use_current_user: checked } };
         this._emitConfigChanged();
     }
 
@@ -531,15 +519,9 @@ export class LensMapCardEditor extends LitElement {
                         ` : ''}
 
                         <div style="margin-top: 0.5em;">
-                            <label>Current user (reference for distance):</label>
-                            <select .value=${this._config.current_user || ''} @change=${this._currentUserChanged}>
-                                <option value="">Select...</option>
-                                ${(this._config.persons || []).map(p => html`
-                                    <option value=${p.entity_id} ?selected="${this._config.current_user === p.entity_id}">
-                                        ${p.name || this.hass.states[p.entity_id]?.attributes?.friendly_name || p.entity_id}
-                                    </option>
-                                `)}
-                            </select>
+                            <p style="font-size: 0.9em; color: #666;">
+                                The current logged-in user is auto-detected for distance calculations.
+                            </p>
                         </div>
                     </div>
                 </details>
