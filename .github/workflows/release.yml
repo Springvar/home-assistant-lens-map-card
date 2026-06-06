@@ -26,12 +26,9 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Create HACS zip
-        run: |
-          cp dist/home-assistant-lens-map-card.js .
-          zip -r release.zip home-assistant-lens-map-card.js hacs.json
-
-      - name: Upload release asset
+      - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" release.zip --clobber
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" dist/home-assistant-lens-map-card.js --clobber
+          gh release upload "${{ github.event.release.tag_name }}" hacs.json --clobber
