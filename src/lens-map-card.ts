@@ -395,39 +395,59 @@ class LensMapCard extends LitElement {
         this._leafletMap.addLayer(tileLayer);
     }
 
+    private _createPersonIcon(stateObj: any, name: string): any {
+        const pictureUrl = stateObj?.attributes?.entity_picture;
+        if (pictureUrl) {
+            return window.L.divIcon({
+                html: `<img src="${this._hass.hassUrl(pictureUrl)}" style="width:40px;height:40px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);object-fit:cover;" />`,
+                iconSize: [40, 40],
+                iconAnchor: [20, 20],
+                className: ''
+            });
+        }
+        return window.L.divIcon({
+            html: `<div style="width:36px;height:36px;border-radius:50%;background:#03a9f4;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold;">${name.charAt(0).toUpperCase()}</div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            className: ''
+        });
+    }
+
     private _updateMarkers() {
         if (!this._leafletMap || !this._hass || !this.persons) return;
 
-        this._markers.forEach(marker => marker.remove());
-        this._markers.clear();
-
-        const currentUserLocation = this._getCurrentUserLocation();
-
+        const visible = new Set<string>();
         for (const person of this.persons) {
             const shouldShow = this._evaluatePersonDisplayRules(person);
             if (!shouldShow) continue;
-
             const location = getLocation(this._hass, person.entity_id);
             if (!location) continue;
+            visible.add(person.entity_id);
+        }
 
+        for (const [entityId, marker] of this._markers) {
+            if (!visible.has(entityId)) {
+                marker.remove();
+                this._markers.delete(entityId);
+            }
+        }
+
+        for (const person of this.persons) {
+            if (!visible.has(person.entity_id)) continue;
+
+            const location = getLocation(this._hass, person.entity_id);
             const stateObj = this._hass.states[person.entity_id];
             const name = person.name || stateObj?.attributes?.friendly_name || person.entity_id;
             const entityState = stateObj?.state || 'unknown';
 
-            const pictureUrl = stateObj?.attributes?.entity_picture;
-            const icon = pictureUrl
-                ? window.L.divIcon({
-                    html: `<img src="${this._hass.hassUrl(pictureUrl)}" style="width:40px;height:40px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);object-fit:cover;" />`,
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 20],
-                    className: ''
-                })
-                : window.L.divIcon({
-                    html: `<div style="width:36px;height:36px;border-radius:50%;background:#03a9f4;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold;">${name.charAt(0).toUpperCase()}</div>`,
-                    iconSize: [36, 36],
-                    iconAnchor: [18, 18],
-                    className: ''
-                });
+            const existing = this._markers.get(person.entity_id);
+            if (existing) {
+                existing.setLatLng([location.latitude, location.longitude]);
+                existing.setPopupContent(`<strong>${name}</strong><br>${entityState}`);
+                continue;
+            }
+
+            const icon = this._createPersonIcon(stateObj, name);
 
             const marker = window.L.marker([location.latitude, location.longitude], {
                 icon,
