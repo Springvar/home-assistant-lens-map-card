@@ -383,7 +383,7 @@ class LensMapCard extends LitElement {
         this._markers.forEach(marker => marker.remove());
         this._markers.clear();
 
-        const currentUserLocation = this._getCurrentUserLocation();
+        const currentUserLocation = this._getMapCenter();
         const currentLat = currentUserLocation?.latitude;
         const currentLon = currentUserLocation?.longitude;
 
@@ -416,7 +416,7 @@ class LensMapCard extends LitElement {
 
         if (enabledRules.length === 0) return true;
 
-        const currentUserLocation = this._getCurrentUserLocation();
+        const currentUserLocation = this._getMapCenter();
         const currentUserLat = currentUserLocation?.latitude;
         const currentUserLon = currentUserLocation?.longitude;
 
