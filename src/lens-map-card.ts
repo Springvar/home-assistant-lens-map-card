@@ -95,14 +95,10 @@ class LensMapCard extends LitElement {
         return el;
     }
 
-    static getStubConfig(hass: any) {
-        const persons = Object.keys(hass.states)
-            .filter((eid) => eid.startsWith('person.'))
-            .slice(0, 2)
-            .map((eid) => ({ entity_id: eid }));
+    static getStubConfig(_hass: any) {
         return {
-            persons,
-            current_user: persons[0]?.entity_id || '',
+            persons: [],
+            current_user: '',
             display_rules: [{ id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }],
             map: { type: 'color' },
             zoom: { level: 10 },
