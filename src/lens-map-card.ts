@@ -198,6 +198,7 @@ class LensMapCard extends LitElement {
             script.src = 'https://unpkg.com/leaflet/dist/leaflet.js';
             script.onload = () => {
                 this._leafletLoaded = true;
+                this._fixLeafletIcons();
                 this._scheduleMapInit();
             };
             script.onerror = () => {
@@ -210,10 +211,20 @@ class LensMapCard extends LitElement {
                 if (window.L) {
                     clearInterval(poll);
                     this._leafletLoaded = true;
+                    this._fixLeafletIcons();
                     this._scheduleMapInit();
                 }
             }, 50);
         }
+    }
+
+    private _fixLeafletIcons() {
+        delete (window.L.Icon.Default.prototype as any)._getIconUrl;
+        window.L.Icon.Default.mergeOptions({
+            iconRetinaUrl: 'https://unpkg.com/leaflet/dist/images/marker-icon-2x.png',
+            iconUrl: 'https://unpkg.com/leaflet/dist/images/marker-icon.png',
+            shadowUrl: 'https://unpkg.com/leaflet/dist/images/marker-shadow.png',
+        });
     }
 
     private _scheduleMapInit() {
@@ -295,6 +306,13 @@ class LensMapCard extends LitElement {
             }
         });
         this._resizeObserver.observe(container);
+    }
+
+    private _getCurrentUserLocation(): { latitude: number; longitude: number } | null {
+        if (this.current_user) {
+            return getLocation(this._hass, this.current_user);
+        }
+        return null;
     }
 
     private _getMapCenter(): { latitude: number; longitude: number } | null {
@@ -383,12 +401,10 @@ class LensMapCard extends LitElement {
         this._markers.forEach(marker => marker.remove());
         this._markers.clear();
 
-        const currentUserLocation = this._getMapCenter();
-        const currentLat = currentUserLocation?.latitude;
-        const currentLon = currentUserLocation?.longitude;
+        const currentUserLocation = this._getCurrentUserLocation();
 
         for (const person of this.persons) {
-            const shouldShow = this._evaluatePersonDisplayRules(person, currentLat, currentLon);
+            const shouldShow = this._evaluatePersonDisplayRules(person);
             if (!shouldShow) continue;
 
             const location = getLocation(this._hass, person.entity_id);
@@ -410,13 +426,13 @@ class LensMapCard extends LitElement {
         }
     }
 
-    private _evaluatePersonDisplayRules(person: PersonConfig, currentLat?: number, currentLon?: number): boolean {
+    private _evaluatePersonDisplayRules(person: PersonConfig, _currentLat?: number, _currentLon?: number): boolean {
         const rules = person.displayRules || this.display_rules || [];
         const enabledRules = rules.filter(r => r.enabled !== false).sort((a, b) => b.priority - a.priority);
 
         if (enabledRules.length === 0) return true;
 
-        const currentUserLocation = this._getMapCenter();
+        const currentUserLocation = this._getCurrentUserLocation();
         const currentUserLat = currentUserLocation?.latitude;
         const currentUserLon = currentUserLocation?.longitude;
 
@@ -425,7 +441,7 @@ class LensMapCard extends LitElement {
 
             let sensorValue: number | string = 0;
 
-            if (rule.sensor === 'distance' && currentUserLat !== undefined && currentLon !== undefined) {
+            if (rule.sensor === 'distance' && currentUserLat !== undefined && currentUserLon !== undefined) {
                 const personLocation = getLocation(this._hass, person.entity_id);
                 if (personLocation) {
                     sensorValue = haversine(currentUserLat, currentUserLon, personLocation.latitude, personLocation.longitude);
