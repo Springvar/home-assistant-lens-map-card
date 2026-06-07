@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
-import type { PersonSensors } from './types';
+import type { PersonSensors, TrailConfig } from './types';
 
 const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
 const VALID_ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
@@ -36,7 +36,8 @@ export class LensMapCardEditor extends LitElement {
             ],
             map: safeConfig.map || { type: 'color', opacity: 1 },
             zoom: safeConfig.zoom || { level: 10, auto_level: false },
-            center: safeConfig.center || { type: 'user' }
+            center: safeConfig.center || { type: 'user' },
+            trail: safeConfig.trail || { enabled: false, max_age: 60 }
         };
         this.requestUpdate();
     }
@@ -294,6 +295,37 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _trailEnabledChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, trail: { ...this._config.trail, enabled: checked } };
+        this._emitConfigChanged();
+    }
+
+    private _trailMaxAgeChanged(e: Event) {
+        const value = parseInt((e.target as HTMLInputElement).value) || 60;
+        this._config = { ...this._config, trail: { ...this._config.trail, max_age: value } };
+        this._emitConfigChanged();
+    }
+
+    private _trailColorChanged(entityId: string, e: Event) {
+        const value = (e.target as HTMLInputElement).value;
+        const colors = { ...(this._config.trail?.colors || {}) };
+        if (value) {
+            colors[entityId] = value;
+        } else {
+            delete colors[entityId];
+        }
+        this._config = { ...this._config, trail: { ...this._config.trail, colors } };
+        this._emitConfigChanged();
+    }
+
+    private _trailColorReset(entityId: string) {
+        const colors = { ...(this._config.trail?.colors || {}) };
+        delete colors[entityId];
+        this._config = { ...this._config, trail: { ...this._config.trail, colors } };
+        this._emitConfigChanged();
+    }
+
     private _emitConfigChanged() {
         this.dispatchEvent(new CustomEvent('config-changed', {
             detail: { config: this._config },
@@ -537,6 +569,36 @@ export class LensMapCardEditor extends LitElement {
                                 Show title
                             </label>
                             <input type="text" .value=${this._config.title || 'Lens Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} style="margin-left: 1em; width: 200px;" />
+                        </div>
+                    </div>
+                </details>
+
+                <!-- TRAIL -->
+                <details>
+                    <summary><h3 style="display: inline;">Trail</h3></summary>
+                    <div style="margin-left: 1em;">
+                        <div>
+                            <label>
+                                <input type="checkbox" .checked=${this._config.trail?.enabled ?? false} @change=${this._trailEnabledChanged} />
+                                Show history trail
+                            </label>
+                        </div>
+                        <div style="margin-top: 0.5em;">
+                            <label>Max history age (minutes):</label>
+                            <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
+                        </div>
+                        <div style="margin-top: 0.5em;">
+                            <strong>Per-person colors</strong>
+                            ${(this._config.persons || []).map(p => {
+                                const name = (p.name || this.hass?.states?.[p.entity_id]?.attributes?.friendly_name || p.entity_id);
+                                return html`
+                                    <div style="display: flex; align-items: center; gap: 0.5em; margin-top: 0.25em;">
+                                        <label style="min-width: 120px;">${name}</label>
+                                        <input type="color" .value=${this._config.trail?.colors?.[p.entity_id] || '#4383d8'} @input=${(e: Event) => this._trailColorChanged(p.entity_id, e)} />
+                                        <button @click=${() => this._trailColorReset(p.entity_id)} style="padding: 2px 6px; font-size: 0.8em;">Reset</button>
+                                    </div>
+                                `;
+                            })}
                         </div>
                     </div>
                 </details>

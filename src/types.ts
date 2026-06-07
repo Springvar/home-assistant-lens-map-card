@@ -43,3 +43,9 @@ export interface CenterConfig {
     home_zone?: string;
     fixed_coordinates?: { lat: number; lon: number };
 }
+
+export interface TrailConfig {
+    enabled?: boolean;
+    max_age?: number;
+    colors?: Record<string, string>;
+}

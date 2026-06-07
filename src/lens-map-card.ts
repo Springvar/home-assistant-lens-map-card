@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import './lens-map-card-editor';
 import type { LensMapCardEditor } from './lens-map-card-editor';
-import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './types';
+import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig, TrailConfig } from './types';
 
 export interface LensMapCardConfig {
     persons: PersonConfig[];
@@ -13,9 +13,17 @@ export interface LensMapCardConfig {
     center?: CenterConfig;
     title?: string;
     show_title?: boolean;
+    trail?: TrailConfig;
 }
 
 const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);
+
+const TRAIL_COLORS = [
+    '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
+    '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4',
+    '#469990', '#dcbeff', '#9a6324', '#fffac8', '#800000',
+    '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9'
+];
 
 function getEntityState(hass: any, entityId: string): string {
     return hass?.states[entityId]?.state || 'unavailable';
@@ -74,6 +82,7 @@ class LensMapCard extends LitElement {
     @property({ type: Object }) declare map: MapConfig;
     @property({ type: Object }) declare zoom: ZoomConfig;
     @property({ type: Object }) declare center: CenterConfig;
+    @property({ type: Object }) declare trail: TrailConfig;
     @property({ type: String }) declare title: string;
     @property({ type: Boolean }) declare show_title: boolean;
 
@@ -85,6 +94,8 @@ class LensMapCard extends LitElement {
     private _mapInitRetries = 0;
     private _initScheduled = false;
     private _mapInitialized = false;
+    private _positionHistory: Map<string, Array<{ lat: number; lon: number; ts: number }>> = new Map();
+    private _trailLayers: Map<string, { polyline: any; circles: any[] }> = new Map();
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -107,6 +118,7 @@ class LensMapCard extends LitElement {
             map: { type: 'color' },
             zoom: { level: 10 },
             center: { type: 'user' },
+            trail: { enabled: false, max_age: 60 },
             title: 'Lens Map',
             show_title: true
         };
@@ -124,7 +136,12 @@ class LensMapCard extends LitElement {
             if (!this.current_user) {
                 this._detectCurrentUser();
             }
-            this._updateMarkers();
+            if (this._leafletMap) {
+                this._updateTrails();
+                this._updateMarkers();
+            } else {
+                this._scheduleMapInit();
+            }
         }
 
         this.requestUpdate('hass', oldHass);
@@ -152,6 +169,8 @@ class LensMapCard extends LitElement {
     disconnectedCallback() {
         super.disconnectedCallback();
         this._initScheduled = false;
+        this._clearTrails();
+        this._positionHistory.clear();
         if (this._resizeObserver) {
             this._resizeObserver.disconnect();
             this._resizeObserver = null;
@@ -176,6 +195,7 @@ class LensMapCard extends LitElement {
         this.map = config.map || { type: 'color', opacity: 1 };
         this.zoom = config.zoom || { level: 10, auto_level: false };
         this.center = config.center || { type: 'user' };
+        this.trail = config.trail || { enabled: false, max_age: 60 };
         this.title = config.title || 'Lens Map';
         this.show_title = config.show_title !== false;
 
@@ -271,6 +291,7 @@ class LensMapCard extends LitElement {
         });
 
         this._addTileLayer();
+        this._updateTrails();
         this._updateMarkers();
 
         if (this.center?.type === 'visible') {
@@ -288,6 +309,91 @@ class LensMapCard extends LitElement {
 
         const group = window.L.featureGroup(markers);
         this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false });
+    }
+
+    private _getTrailColor(person: PersonConfig, idx: number): string {
+        if (this.trail?.colors?.[person.entity_id]) return this.trail.colors[person.entity_id];
+        return TRAIL_COLORS[idx % TRAIL_COLORS.length];
+    }
+
+    private _updateTrails() {
+        if (!this._leafletMap || !this._hass) return;
+        const enabled = this.trail?.enabled;
+        const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
+        const now = Date.now();
+
+        if (!enabled) {
+            this._clearTrails();
+            return;
+        }
+
+        for (const person of this.persons) {
+            const location = getLocation(this._hass, person.entity_id);
+            if (!location) continue;
+
+            let history = this._positionHistory.get(person.entity_id) || [];
+
+            const last = history[history.length - 1];
+            const moved = !last || last.lat !== location.latitude || last.lon !== location.longitude;
+
+            if (moved && (!last || (now - last.ts) > 5000)) {
+                history.push({ lat: location.latitude, lon: location.longitude, ts: now });
+            }
+
+            history = history.filter(p => (now - p.ts) <= maxAgeMs);
+            this._positionHistory.set(person.entity_id, history);
+        }
+
+        this._drawTrails();
+    }
+
+    private _clearTrails() {
+        for (const { polyline, circles } of this._trailLayers.values()) {
+            polyline.remove();
+            circles.forEach(c => c.remove());
+        }
+        this._trailLayers.clear();
+    }
+
+    private _drawTrails() {
+        this._clearTrails();
+
+        const enabled = this.trail?.enabled;
+        if (!enabled || !this._leafletMap) return;
+
+        const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
+        const now = Date.now();
+
+        for (const [idx, person] of this.persons.entries()) {
+            const history = this._positionHistory.get(person.entity_id);
+            if (!history || history.length < 2) continue;
+
+            const color = this._getTrailColor(person, idx);
+            const latlngs: [number, number][] = history.map(p => [p.lat, p.lon]);
+
+            const polyline = window.L.polyline(latlngs, {
+                color,
+                weight: 3,
+                opacity: 0.7
+            }).addTo(this._leafletMap);
+
+            const circles = history.map(p => {
+                const age = now - p.ts;
+                const ratio = Math.max(0, 1 - age / maxAgeMs);
+                const opacity = 0.5 + ratio * 0.5;
+                const radius = age === 0 ? 6 : 4;
+                return window.L.circleMarker([p.lat, p.lon], {
+                    radius,
+                    color,
+                    fillColor: color,
+                    fillOpacity: opacity,
+                    opacity,
+                    weight: 2
+                }).addTo(this._leafletMap);
+            });
+
+            this._trailLayers.set(person.entity_id, { polyline, circles });
+        }
     }
 
     private _setupResizeObserver(container: HTMLElement) {
