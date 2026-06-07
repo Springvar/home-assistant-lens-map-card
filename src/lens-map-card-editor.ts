@@ -558,18 +558,21 @@ export class LensMapCardEditor extends LitElement {
                     <summary><h3 style="display: inline;">Zoom & Center</h3></summary>
                     <div style="margin-left: 1em;">
                         <div>
-                            ${this._config.zoom?.auto_level ? '' : html`
-                                <label>Zoom level:</label>
-                                <select .value=${this._config.zoom?.level ?? 13} @change=${this._zoomLevelChanged}>
-                                    ${VALID_ZOOM_LEVELS.map(level => html`<option value=${level} ?selected="${this._config.zoom?.level === level}">${level}${level === 10 ? ' (~20km)' : ''}</option>`)}
-                                </select>
-                            `}
-                            ${this._config.center?.type !== 'fixed' && this._config.center?.type !== 'home' ? html`
-                                <label style="margin-left: 1em;">
-                                    <input type="checkbox" .checked=${this._config.zoom?.auto_level ?? false} @change=${this._zoomAutoChanged} />
-                                    Auto
-                                </label>
-                            ` : ''}
+                            <label>Zoom level:</label>
+                            <select .value=${this._config.zoom?.level ?? 13} @change=${this._zoomLevelChanged}>
+                                ${VALID_ZOOM_LEVELS.map(level => html`<option value=${level} ?selected="${this._config.zoom?.level === level}">${level}${level === 10 ? ' (~20km)' : ''}</option>`)}
+                            </select>
+                        </div>
+                        <div style="margin-top: 0.3em;">
+                            <label>
+                                <input type="checkbox" .checked=${this._config.zoom?.auto_level ?? false} @change=${this._zoomAutoChanged} />
+                                Auto
+                            </label>
+                            <span style="font-size: 0.85em; color: #666; margin-left: 0.5em;">
+                                ${this._config.center?.type === 'visible'
+                                    ? '(automatic zoom and center on visible persons)'
+                                    : '(automatic zoom to include all visible persons)'}
+                            </span>
                         </div>
                         <div style="margin-top: 0.5em;">
                             <label>Center on:</label>
