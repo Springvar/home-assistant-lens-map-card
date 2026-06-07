@@ -92,6 +92,12 @@ class LensMapCard extends LitElement {
     private _trailLayers: Map<string, { polylines: any[]; circles: any[] }> = new Map();
     private _fetchingHistory = false;
     private _lastCenterPos: { lat: number; lng: number } | null = null;
+    @state() private _hiddenPersons: Set<string> = new Set();
+    @state() private _autoZoomEnabled: boolean = false;
+
+    private get _effectiveAutoZoom(): boolean {
+        return this._autoZoomEnabled && this.zoom?.auto_level === true;
+    }
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -324,7 +330,9 @@ class LensMapCard extends LitElement {
 
     private _fitMapToVisibleMarkers() {
         if (!this._leafletMap) return;
-        const markers = Array.from(this._markers.values());
+        const markers = Array.from(this._markers.entries())
+            .filter(([eid]) => !this._hiddenPersons.has(eid))
+            .map(([_, m]) => m);
         if (markers.length === 0) return;
 
         const group = window.L.featureGroup(markers);
@@ -438,6 +446,7 @@ class LensMapCard extends LitElement {
         }
 
         for (const person of this.persons) {
+            if (this._hiddenPersons.has(person.entity_id)) continue;
             const location = getLocation(this._hass, person.entity_id);
             if (!location) continue;
 
@@ -485,6 +494,7 @@ class LensMapCard extends LitElement {
         const now = Date.now();
 
         for (const [idx, person] of this.persons.entries()) {
+            if (this._hiddenPersons.has(person.entity_id)) continue;
             const history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
 
@@ -644,7 +654,9 @@ class LensMapCard extends LitElement {
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
-        const markers = Array.from(this._markers.values());
+        const markers = Array.from(this._markers.entries())
+            .filter(([eid]) => !this._hiddenPersons.has(eid))
+            .map(([_, m]) => m);
         if (markers.length === 0) return null;
         const latlngs = markers.map((m: any) => m.getLatLng());
         const avgLat = latlngs.reduce((s: number, ll: any) => s + ll.lat, 0) / latlngs.length;
@@ -720,6 +732,7 @@ class LensMapCard extends LitElement {
 
         const visible = new Set<string>();
         for (const person of this.persons) {
+            if (this._hiddenPersons.has(person.entity_id)) continue;
             const shouldShow = this._evaluatePersonDisplayRules(person);
             if (!shouldShow) continue;
             const location = getLocation(this._hass, person.entity_id);
@@ -807,12 +820,77 @@ class LensMapCard extends LitElement {
         return true;
     }
 
+    private _togglePerson(entityId: string) {
+        if (this._hiddenPersons.has(entityId)) {
+            this._hiddenPersons.delete(entityId);
+        } else {
+            this._hiddenPersons.add(entityId);
+        }
+        this._hiddenPersons = new Set(this._hiddenPersons);
+        if (this._leafletMap) {
+            this._updateMarkers();
+            this._drawTrails();
+            if (this.center?.type === 'visible' && this._effectiveAutoZoom) {
+                this._fitMapToVisibleMarkers();
+            }
+        }
+    }
+
+    private _toggleAutoZoom() {
+        this._autoZoomEnabled = !this._autoZoomEnabled;
+        if (this._effectiveAutoZoom && this._leafletMap) {
+            if (this.center?.type === 'visible') {
+                this._fitMapToVisibleMarkers();
+            } else {
+                const loc = this._getMapCenter();
+                if (loc) this._leafletMap.setView([loc.latitude, loc.longitude], this._leafletMap.getZoom(), { animate: true });
+            }
+        }
+    }
+
+    private _getPersonIconUrl(person: PersonConfig): string | null {
+        const stateObj = this._hass?.states?.[person.entity_id];
+        const picture = stateObj?.attributes?.entity_picture;
+        if (picture) return picture;
+        return null;
+    }
+
     render() {
         return html`
             <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
             <ha-card>
                 ${this.show_title ? html`<div class="card-header">${this.title}</div>` : ''}
-                <div id="map-container" class="map-container"></div>
+                <div class="map-wrapper">
+                    <div id="map-container" class="map-container"></div>
+                    <div class="map-overlay">
+                        ${this.zoom?.auto_level ? html`
+                            <button class="overlay-btn ${this._effectiveAutoZoom ? 'active' : ''}"
+                                    @click=${this._toggleAutoZoom}
+                                    title="${this._effectiveAutoZoom ? 'Disable' : 'Enable'} auto zoom">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                                </svg>
+                            </button>
+                        ` : ''}
+                        ${this.persons.map(person => {
+                            const isHidden = this._hiddenPersons.has(person.entity_id);
+                            const name = person.name || this._hass?.states?.[person.entity_id]?.attributes?.friendly_name || person.entity_id;
+                            const imgUrl = this._getPersonIconUrl(person);
+                            return html`
+                                <button class="overlay-person-btn ${isHidden ? 'hidden' : ''}"
+                                        @click=${() => this._togglePerson(person.entity_id)}
+                                        title="${name} (${isHidden ? 'hidden' : 'visible'})">
+                                    ${imgUrl ? html`
+                                        <img src="${imgUrl}" class="person-icon-img" />
+                                    ` : html`
+                                        <span class="person-icon-letter">${name.charAt(0).toUpperCase()}</span>
+                                    `}
+                                </button>
+                            `;
+                        })}
+                    </div>
+                </div>
             </ha-card>
         `;
     }
@@ -827,11 +905,71 @@ class LensMapCard extends LitElement {
             font-size: 1.2em;
             margin-bottom: 10px;
         }
+        .map-wrapper {
+            position: relative;
+        }
         .map-container {
             height: 400px;
             width: 100%;
             border-radius: 8px;
             overflow: hidden;
+        }
+        .map-overlay {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 1000;
+        }
+        .overlay-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            border: 2px solid rgba(0,0,0,0.2);
+            background: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+            color: #333;
+            padding: 0;
+        }
+        .overlay-btn.active {
+            background: #03a9f4;
+            color: white;
+            border-color: #039be5;
+        }
+        .overlay-person-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid rgba(0,0,0,0.2);
+            background: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+            overflow: hidden;
+            padding: 0;
+            transition: filter 0.2s, opacity 0.2s;
+        }
+        .overlay-person-btn.hidden {
+            filter: grayscale(1);
+            opacity: 0.5;
+        }
+        .person-icon-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .person-icon-letter {
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
         }
     `;
 }
