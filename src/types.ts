@@ -49,6 +49,7 @@ export interface TrailConfig {
     enabled?: boolean;
     max_age?: number;
     max_distance?: number;
+    proximity?: number;
     colors?: Record<string, string>;
 }
 

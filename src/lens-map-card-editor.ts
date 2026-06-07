@@ -334,6 +334,12 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _trailProximityChanged(e: Event) {
+        const value = parseInt((e.target as HTMLInputElement).value) || 0;
+        this._config = { ...this._config, trail: { ...this._config.trail, proximity: value } };
+        this._emitConfigChanged();
+    }
+
     private _trailColorChanged(entityId: string, e: Event) {
         const value = (e.target as HTMLInputElement).value;
         const colors = { ...(this._config.trail?.colors || {}) };
@@ -505,6 +511,10 @@ export class LensMapCardEditor extends LitElement {
                             <div style="margin-top: 0.5em;">
                                 <label>Max trail distance (meters, 0 = use default rule):</label>
                                 <input type="number" .value=${this._config.trail?.max_distance ?? ''} min="0" step="100" @input=${this._trailMaxDistanceChanged} style="width: 100px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Hide trail points within (meters of person):</label>
+                                <input type="number" .value=${this._config.trail?.proximity ?? 50} min="0" step="10" @input=${this._trailProximityChanged} style="width: 80px;" />
                             </div>
                             <div style="margin-top: 0.5em;">
                                 <strong>Per-person colors</strong>

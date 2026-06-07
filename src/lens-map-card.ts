@@ -541,14 +541,25 @@ class LensMapCard extends LitElement {
 
             let filteredHistory = history;
             const kept = new Array(history.length).fill(true);
+
+            const personLoc = getLocation(this._hass, person.entity_id);
+            const proximity = this.trail?.proximity ?? 50;
+            if (proximity > 0 && personLoc) {
+                for (let i = 0; i < history.length; i++) {
+                    const d = haversine(personLoc.latitude, personLoc.longitude, history[i].lat, history[i].lon);
+                    if (d <= proximity) kept[i] = false;
+                }
+            }
+
             if (filterDistance > 0 && userLoc) {
                 for (let i = 0; i < history.length; i++) {
                     const d = haversine(userLoc.latitude, userLoc.longitude, history[i].lat, history[i].lon);
                     if (d > filterDistance) kept[i] = false;
                 }
-                filteredHistory = history.filter((_, i) => kept[i]);
-                if (filteredHistory.length < 2) continue;
             }
+
+            filteredHistory = history.filter((_, i) => kept[i]);
+            if (filteredHistory.length < 2) continue;
 
             const color = this._getTrailColor(person, idx);
 
