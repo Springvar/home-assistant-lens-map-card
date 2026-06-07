@@ -410,7 +410,7 @@ class LensMapCard extends LitElement {
                 const deduped: typeof allPoints = [];
                 for (const p of allPoints) {
                     const last = deduped[deduped.length - 1];
-                    if (!last || last.lat !== p.lat || last.lon !== p.lon) {
+                    if (!last || haversine(last.lat, last.lon, p.lat, p.lon) > 0.05) {
                         deduped.push(p);
                     }
                 }
@@ -455,7 +455,7 @@ class LensMapCard extends LitElement {
             let history = this._positionHistory.get(person.entity_id) || [];
 
             const last = history[history.length - 1];
-            const isDuplicate = last && last.lat === location.latitude && last.lon === location.longitude;
+            const isDuplicate = last && haversine(last.lat, last.lon, location.latitude, location.longitude) <= 0.05;
 
             if (!isDuplicate && distOk) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
