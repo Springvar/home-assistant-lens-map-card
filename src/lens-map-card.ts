@@ -15,6 +15,8 @@ export interface LensMapCardConfig {
     title?: string;
     show_title?: boolean;
     trail?: TrailConfig;
+    show_auto_zoom?: boolean;
+    show_toggle_buttons?: boolean;
 }
 
 const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);
@@ -79,6 +81,8 @@ class LensMapCard extends LitElement {
     @property({ type: Object }) declare trail: TrailConfig;
     @property({ type: String }) declare title: string;
     @property({ type: Boolean }) declare show_title: boolean;
+    @property({ type: Boolean }) declare show_auto_zoom: boolean;
+    @property({ type: Boolean }) declare show_toggle_buttons: boolean;
 
     @state() private _hass: any;
     @state() private _leafletLoaded = false;
@@ -122,7 +126,9 @@ class LensMapCard extends LitElement {
             center: { type: 'user' },
             trail: { enabled: false, max_age: 60 },
             title: 'Lens Map',
-            show_title: true
+            show_title: true,
+            show_auto_zoom: true,
+            show_toggle_buttons: true
         };
     }
 
@@ -204,6 +210,8 @@ class LensMapCard extends LitElement {
         this.trail = config.trail || { enabled: false, max_age: 60 };
         this.title = config.title || 'Lens Map';
         this.show_title = config.show_title !== false;
+        this.show_auto_zoom = config.show_auto_zoom !== false;
+        this.show_toggle_buttons = config.show_toggle_buttons !== false;
 
         if (this._leafletLoaded) {
             setTimeout(() => {
@@ -875,7 +883,7 @@ class LensMapCard extends LitElement {
                 <div class="map-wrapper">
                     <div id="map-container" class="map-container"></div>
                     <div class="map-overlay">
-                        ${this.zoom?.auto_level ? html`
+                        ${this.zoom?.auto_level && this.show_auto_zoom ? html`
                             <button class="overlay-btn ${this._effectiveAutoZoom ? 'active' : ''}"
                                     @click=${this._toggleAutoZoom}
                                     title="${this._effectiveAutoZoom ? 'Disable' : 'Enable'} auto zoom">
@@ -885,7 +893,7 @@ class LensMapCard extends LitElement {
                                 </svg>
                             </button>
                         ` : ''}
-                        ${this.persons.map(person => {
+                        ${this.show_toggle_buttons ? this.persons.map(person => {
                             const isHidden = this._hiddenPersons.has(person.entity_id);
                             const name = person.name || this._hass?.states?.[person.entity_id]?.attributes?.friendly_name || person.entity_id;
                             const imgUrl = this._getPersonIconUrl(person);
@@ -900,7 +908,7 @@ class LensMapCard extends LitElement {
                                     `}
                                 </button>
                             `;
-                        })}
+                        }) : ''}
                     </div>
                 </div>
             </ha-card>

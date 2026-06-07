@@ -38,7 +38,9 @@ export class LensMapCardEditor extends LitElement {
             map: safeConfig.map || { type: 'color', opacity: 1 },
             zoom: safeConfig.zoom || { level: 10, auto_level: false },
             center: safeConfig.center || { type: 'user' },
-            trail: safeConfig.trail || { enabled: false, max_age: 60 }
+            trail: safeConfig.trail || { enabled: false, max_age: 60 },
+            show_auto_zoom: safeConfig.show_auto_zoom ?? true,
+            show_toggle_buttons: safeConfig.show_toggle_buttons ?? true
         };
         this.requestUpdate();
     }
@@ -302,6 +304,18 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _showAutoZoomChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, show_auto_zoom: checked };
+        this._emitConfigChanged();
+    }
+
+    private _showToggleButtonsChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, show_toggle_buttons: checked };
+        this._emitConfigChanged();
+    }
+
     private _trailEnabledChanged(e: Event) {
         const checked = (e.target as HTMLInputElement).checked;
         this._config = { ...this._config, trail: { ...this._config.trail, enabled: checked } };
@@ -536,12 +550,6 @@ export class LensMapCardEditor extends LitElement {
                             <label>API Key (optional):</label>
                             <input type="text" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="For Stadia Maps" style="width: 200px;" />
                         </div>
-                        <div>
-                            <label>
-                                <input type="checkbox" .checked=${this._config.map?.interactive !== false} @change=${this._mapInteractiveChanged} />
-                                Interactive (zoom, pan, scroll)
-                            </label>
-                        </div>
                     </div>
                 </details>
 
@@ -623,6 +631,24 @@ export class LensMapCardEditor extends LitElement {
                                 Show title
                             </label>
                             <input type="text" .value=${this._config.title || 'Lens Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} style="margin-left: 1em; width: 200px;" />
+                        </div>
+                        <div>
+                            <label>
+                                <input type="checkbox" .checked=${this._config.map?.interactive !== false} @change=${this._mapInteractiveChanged} />
+                                Interactive (zoom, pan, scroll)
+                            </label>
+                        </div>
+                        <div>
+                            <label>
+                                <input type="checkbox" .checked=${this._config.show_auto_zoom !== false} @change=${this._showAutoZoomChanged} />
+                                Show auto zoom button
+                            </label>
+                        </div>
+                        <div>
+                            <label>
+                                <input type="checkbox" .checked=${this._config.show_toggle_buttons !== false} @change=${this._showToggleButtonsChanged} />
+                                Show toggle buttons
+                            </label>
                         </div>
                     </div>
                 </details>
