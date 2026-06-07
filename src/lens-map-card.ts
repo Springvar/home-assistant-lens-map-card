@@ -601,6 +601,14 @@ class LensMapCard extends LitElement {
                 }).addTo(this._leafletMap);
             });
 
+            if (isVisible && personLoc && filteredHistory.length > 0) {
+                const last = filteredHistory[filteredHistory.length - 1];
+                polylines.push(window.L.polyline(
+                    [[personLoc.latitude, personLoc.longitude], [last.lat, last.lon]],
+                    { color, weight: 2, opacity: 0.7, dashArray: '6, 6' }
+                ).addTo(this._leafletMap));
+            }
+
             this._trailLayers.set(person.entity_id, { polylines, circles });
         }
     }
