@@ -481,11 +481,21 @@ class LensMapCard extends LitElement {
         if (!enabled || !this._leafletMap) return;
 
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
+        const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
         const now = Date.now();
 
         for (const [idx, person] of this.persons.entries()) {
-            const history = this._positionHistory.get(person.entity_id);
+            let history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
+
+            const personLoc = getLocation(this._hass, person.entity_id);
+            if (maxDistance > 0 && personLoc) {
+                history = history.filter(p => {
+                    const d = haversine(personLoc.latitude, personLoc.longitude, p.lat, p.lon);
+                    return d <= maxDistance;
+                });
+                if (history.length < 2) continue;
+            }
 
             const color = this._getTrailColor(person, idx);
             const latlngs: [number, number][] = history.map(p => [p.lat, p.lon]);
