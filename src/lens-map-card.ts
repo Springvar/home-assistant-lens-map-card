@@ -2,7 +2,8 @@ import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import './lens-map-card-editor';
 import type { LensMapCardEditor } from './lens-map-card-editor';
-import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig, TrailConfig } from './types';
+import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './types';
+import { TrailConfig, TRAIL_COLORS } from './types';
 
 export interface LensMapCardConfig {
     persons: PersonConfig[];
@@ -17,13 +18,6 @@ export interface LensMapCardConfig {
 }
 
 const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);
-
-const TRAIL_COLORS = [
-    '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
-    '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4',
-    '#469990', '#dcbeff', '#9a6324', '#fffac8', '#800000',
-    '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9'
-];
 
 function getEntityState(hass: any, entityId: string): string {
     return hass?.states[entityId]?.state || 'unavailable';

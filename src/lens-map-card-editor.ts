@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
+import { TRAIL_COLORS } from './types';
 import type { PersonSensors, TrailConfig } from './types';
 
 const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
@@ -442,8 +443,40 @@ export class LensMapCardEditor extends LitElement {
                                             </div>
                                             <button @click=${() => this._addDisplayRule(idx)}>+ Add Rule</button>
                                         </div>
-                                    </div>
-                                </details>
+                    </div>
+                    <div style="margin-top: 0.5em;">
+                        <strong>Trail</strong>
+                        <div style="margin-left: 1em; margin-top: 0.3em;">
+                            <div>
+                                <label>
+                                    <input type="checkbox" .checked=${this._config.trail?.enabled ?? false} @change=${this._trailEnabledChanged} />
+                                    Show history trail
+                                </label>
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Max history age (minutes):</label>
+                                <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Max trail distance (meters, 0 = use default rule):</label>
+                                <input type="number" .value=${this._config.trail?.max_distance ?? ''} min="0" step="100" @input=${this._trailMaxDistanceChanged} style="width: 100px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <strong>Per-person colors</strong>
+                                ${(this._config.persons || []).map(p => {
+                                    const name = (p.name || this.hass?.states?.[p.entity_id]?.attributes?.friendly_name || p.entity_id);
+                                    return html`
+                                        <div style="display: flex; align-items: center; gap: 0.5em; margin-top: 0.25em;">
+                                            <label style="min-width: 120px;">${name}</label>
+                                            <input type="color" .value=${this._config.trail?.colors?.[p.entity_id] || TRAIL_COLORS[this._config.persons.indexOf(p) % TRAIL_COLORS.length]} @input=${(e: Event) => this._trailColorChanged(p.entity_id, e)} />
+                                            <button @click=${() => this._trailColorReset(p.entity_id)} style="padding: 2px 6px; font-size: 0.8em;">Reset</button>
+                                        </div>
+                                    `;
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </details>
                             `)}
                         </div>
                     </div>
@@ -594,41 +627,6 @@ export class LensMapCardEditor extends LitElement {
                         </div>
                     </div>
                 </details>
-
-                <!-- TRAIL -->
-                <details>
-                    <summary><h3 style="display: inline;">Trail</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <div>
-                            <label>
-                                <input type="checkbox" .checked=${this._config.trail?.enabled ?? false} @change=${this._trailEnabledChanged} />
-                                Show history trail
-                            </label>
-                        </div>
-                        <div style="margin-top: 0.5em;">
-                            <label>Max history age (minutes):</label>
-                            <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
-                        </div>
-                        <div style="margin-top: 0.5em;">
-                            <label>Max trail distance (meters, 0 = use default rule):</label>
-                            <input type="number" .value=${this._config.trail?.max_distance ?? ''} min="0" step="100" @input=${this._trailMaxDistanceChanged} style="width: 100px;" />
-                        </div>
-                        <div style="margin-top: 0.5em;">
-                            <strong>Per-person colors</strong>
-                            ${(this._config.persons || []).map(p => {
-                                const name = (p.name || this.hass?.states?.[p.entity_id]?.attributes?.friendly_name || p.entity_id);
-                                return html`
-                                    <div style="display: flex; align-items: center; gap: 0.5em; margin-top: 0.25em;">
-                                        <label style="min-width: 120px;">${name}</label>
-                                        <input type="color" .value=${this._config.trail?.colors?.[p.entity_id] || '#4383d8'} @input=${(e: Event) => this._trailColorChanged(p.entity_id, e)} />
-                                        <button @click=${() => this._trailColorReset(p.entity_id)} style="padding: 2px 6px; font-size: 0.8em;">Reset</button>
-                                    </div>
-                                `;
-                            })}
-                        </div>
-                    </div>
-                </details>
-
                 </div>
             </div>
         `;
