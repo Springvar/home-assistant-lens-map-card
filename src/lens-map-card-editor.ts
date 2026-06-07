@@ -443,6 +443,37 @@ export class LensMapCardEditor extends LitElement {
                                             </div>
                                             <button @click=${() => this._addDisplayRule(idx)}>+ Add Rule</button>
                                         </div>
+                                `)}
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- DISPLAY RULES (Default) -->
+                <details>
+                    <summary><h3 style="display: inline;">Display Rules (Default)</h3></summary>
+                    <div style="margin-left: 1em;">
+                        <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5em;">
+                            Default rule applied to all persons unless they have their own rules.
+                        </p>
+                        <div style="display: flex; gap: 0.5em; align-items: center;">
+                            <span>Show when</span>
+                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.sensor || 'distance'} @change=${this._defaultRuleSensorChanged}>
+                                <option value="distance">distance</option>
+                                <option value="state">state</option>
+                                ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}">${sn}</option>`)}
+                            </select>
+                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.operator || '<'} @change=${this._defaultRuleOperatorChanged}>
+                                <option value="<" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<'}"><</option>
+                                <option value="<=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<='}">≤</option>
+                                <option value=">" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>'}">></option>
+                                <option value=">=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>='}">≥</option>
+                                <option value="=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '='}">=</option>
+                                <option value="!=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '!='}">≠</option>
+                            </select>
+                            <input type="text" .value=${this._config.display_rules?.find(r => r.id === 'default')?.value || '1000'} @input=${this._defaultRuleValueChanged} placeholder="value" style="width: 80px;" />
+                            <span>m</span>
+                        </div>
                     </div>
                     <div style="margin-top: 0.5em;">
                         <strong>Trail</strong>
@@ -474,38 +505,6 @@ export class LensMapCardEditor extends LitElement {
                                     `;
                                 })}
                             </div>
-                        </div>
-                    </div>
-                </details>
-                            `)}
-                        </div>
-                    </div>
-                </details>
-
-                <!-- DISPLAY RULES (Default) -->
-                <details>
-                    <summary><h3 style="display: inline;">Display Rules (Default)</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5em;">
-                            Default rule applied to all persons unless they have their own rules.
-                        </p>
-                        <div style="display: flex; gap: 0.5em; align-items: center;">
-                            <span>Show when</span>
-                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.sensor || 'distance'} @change=${this._defaultRuleSensorChanged}>
-                                <option value="distance">distance</option>
-                                <option value="state">state</option>
-                                ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}">${sn}</option>`)}
-                            </select>
-                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.operator || '<'} @change=${this._defaultRuleOperatorChanged}>
-                                <option value="<" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<'}"><</option>
-                                <option value="<=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<='}">≤</option>
-                                <option value=">" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>'}">></option>
-                                <option value=">=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>='}">≥</option>
-                                <option value="=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '='}">=</option>
-                                <option value="!=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '!='}">≠</option>
-                            </select>
-                            <input type="text" .value=${this._config.display_rules?.find(r => r.id === 'default')?.value || '1000'} @input=${this._defaultRuleValueChanged} placeholder="value" style="width: 80px;" />
-                            <span>m</span>
                         </div>
                     </div>
                 </details>
