@@ -331,7 +331,7 @@ class LensMapCard extends LitElement {
     }
 
     private async _fetchTrailHistory() {
-        if (this._fetchingHistory || !this._hass?.connection || !this.persons.length) return;
+        if (this._fetchingHistory || !this._hass || !this.persons.length) return;
         this._fetchingHistory = true;
 
         const maxAge = this.trail?.max_age ?? 60;
@@ -341,7 +341,7 @@ class LensMapCard extends LitElement {
         const personTrackers = new Map<string, string[]>();
 
         for (const person of this.persons) {
-            const stateObj = this._hass!.states[person.entity_id];
+            const stateObj = this._hass.states[person.entity_id];
             const trackers: string[] = stateObj?.attributes?.device_trackers || [];
             personTrackers.set(person.entity_id, trackers);
             for (const t of trackers) {
@@ -355,13 +355,10 @@ class LensMapCard extends LitElement {
         }
 
         try {
-            const result: any[][] = await this._hass.connection.sendMessagePromise({
-                type: 'history/period',
-                start_time: startTime,
-                entity_ids: allDeviceTrackers,
-                minimal_response: false,
-                significant_changes_only: false
-            });
+            const url = `/api/history/period/${encodeURIComponent(startTime)}?filter_entity_id=${allDeviceTrackers.join(',')}`;
+            const response = await fetch(url, { credentials: 'same-origin' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result: any[][] = await response.json();
 
             const trackerStates = new Map<string, any[]>();
             for (const states of result) {
