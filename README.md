@@ -8,21 +8,25 @@ A Home Assistant Lovelace card to display persons on a map based on configurable
 - Configurable display rules for when each person is shown
 - Default rule: distance < 1000m from current user
 - Custom sensors per person
-- Multiple map tile providers (OpenStreetMap, Stamen, CartoDB)
-- Configurable zoom level and center
+- History trail with configurable opacity, age, proximity, and distance filters
+- Per-person trail color picker
+- Multiple map tile providers (OpenStreetMap, CartoDB, Stadia, Esri, OpenTopoMap)
+- Configurable zoom level, auto zoom, and center
+- Overlay controls: auto-zoom toggle and per-person visibility toggle buttons
+- Auto-detect current user from `hass.user.id`
 - Highly configurable through the UI editor
 
 ## Installation
+
+### HACS
+
+This card is available through HACS. Add this repository as a custom repository in HACS.
 
 ### Manual
 
 1. Download `home-assistant-lens-map-card.js` from the [releases](https://github.com/anomalyco/home-assistant-lens-map-card/releases)
 2. Place it in your `www` folder
 3. Reference it in your Lovelace configuration
-
-### HACS
-
-This card is available through HACS (Home Assistant Community Store).
 
 ## Configuration
 
@@ -34,7 +38,6 @@ title: Lens Map
 persons:
   - entity_id: person.user1
   - entity_id: person.user2
-current_user: person.user1
 display_rules:
   - sensor: distance
     operator: <
@@ -51,7 +54,6 @@ zoom:
 type: custom:lens-map-card
 title: Family Map
 show_title: true
-current_user: person.dad
 persons:
   - entity_id: person.dad
     name: Dad
@@ -64,13 +66,8 @@ persons:
         value: "5000"
   - entity_id: person.mom
     name: Mom
-    displayRules:
-      - sensor: distance
-        operator: <
-        value: "10000"
   - entity_id: person.kid
     name: Kid
-    showOnMap: true
 display_rules:
   - id: default
     priority: 1
@@ -81,13 +78,26 @@ display_rules:
 map:
   type: dark
   opacity: 0.8
+  interactive: true
   api_key: YOUR_STADIA_API_KEY
 zoom:
   level: 10
   auto_level: false
 center:
-  use_current_user: true
-  entity_id: person.dad
+  type: visible
+trail:
+  enabled: true
+  max_age: 60
+  max_distance: 5000
+  proximity: 50
+  newest_opacity: 1
+  oldest_opacity: 0.3
+  midpoint: 50
+  colors:
+    person.dad: "#e6194b"
+    person.mom: "#3cb44b"
+show_auto_zoom: true
+show_toggle_buttons: true
 ```
 
 ## Configuration Options
@@ -98,11 +108,14 @@ center:
 | `title` | string | `'Lens Map'` | Card title |
 | `show_title` | boolean | `true` | Whether to show the title |
 | `persons` | array | `[]` | List of persons to display |
-| `current_user` | string | | Entity ID of the current user (used as reference for distance calculations) |
+| `current_user` | string | auto-detected | Entity ID of the current user (used as reference for distance calculations; auto-detected from `hass.user.id` if not set) |
 | `display_rules` | array | | Default display rules applied to all persons |
 | `map` | object | | Map configuration |
 | `zoom` | object | | Zoom settings |
 | `center` | object | | Center settings |
+| `trail` | object | | History trail settings |
+| `show_auto_zoom` | boolean | `true` | Show auto-zoom button in overlay |
+| `show_toggle_buttons` | boolean | `true` | Show per-person toggle buttons in overlay |
 
 ### Person Options
 
@@ -110,18 +123,18 @@ center:
 |--------|------|--------|-------------|
 | `entity_id` | string | Required | Person entity ID |
 | `name` | string | | Custom display name |
-| `namedSensors` | object | | Custom sensors for this person |
-| `displayRules` | array | | Person-specific display rules |
-| `showOnMap` | boolean | | Override to always/never show |
+| `namedSensors` | object | | Custom sensors for this person (to use in display rules) |
+| `displayRules` | array | | Person-specific display rules (overrides default) |
+| `showOnMap` | boolean | | Show on map regardless of display rules |
 
 ### Display Rule Options
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `id` | string | Unique rule ID |
+| `id` | string | Unique | Rule ID |
 | `priority` | number | `1` | Higher = evaluated first |
 | `sensor` | string | `'distance'` | Sensor to check (`distance`, `state`, or custom sensor name) |
-| `operator` | string | Required | Comparison operator (`<`, `<=`, `>`, `>=`, `=`, `!=`) |
+| `operator` | string | Required | Comparison operator (`<`, `<=`, `>`, `>=`, `=`, `!=`, `oneOf`) |
 | `value` | string | Required | Value to compare against |
 | `enabled` | boolean | `true` | Whether rule is active |
 
@@ -129,41 +142,62 @@ center:
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `type` | string | `'color'` | Map tile style (`bw`, `color`, `dark`, `outlines`, `system`) |
+| `type` | string | `'color'` | Map tile style |
 | `opacity` | number | `1` | Map layer opacity (0-1) |
-| `api_key` | string | | API key for tile providers (e.g., Stadia Maps) |
+| `api_key` | string | | API key for tile providers (Stadia Maps) |
+| `interactive` | boolean | `true` | Enable map interactivity (zoom, pan, scroll) |
 
 ### Map Types
 
-- `bw`: Black & White (Stamen Toner)
-- `color`: Color (OpenStreetMap)
-- `dark`: Dark mode (CartoDB)
-- `outlines`: Outlines only (Stamen Toner Lines)
-- `system`: Auto-detect based on Home Assistant theme
+| Value | Description |
+|-------|-------------|
+| `none` | No tile layer |
+| `system` | Auto-detect dark/light based on Home Assistant theme |
+| `bw` | Black & White (Stadia Toner, requires API key) |
+| `light` | Light (CartoDB) |
+| `color` | Color (OpenStreetMap) |
+| `dark` | Dark (CartoDB) |
+| `voyager` | Voyager (CartoDB) |
+| `satellite` | Satellite (Esri) |
+| `topo` | Topographic (OpenTopoMap) |
+| `outlines` | Outlines only (Stadia Toner Lines, requires API key) |
 
 ### Zoom Options
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `level` | number | `10` | Zoom level (1-18, 10 ≈ 20km radius) |
-| `auto_level` | boolean | `false` | Auto-adjust zoom to fit all persons |
-
-### Zoom Levels (approximate radius)
-
-| Level | Radius |
-|-------|-------|
-| 1 | ~20000km |
-| 5 | ~1000km |
-| 10 | ~20km |
-| 13 | ~1km |
-| 18 | ~0.5m |
+| `level` | number | `10` | Zoom level (1-18) |
+| `auto_level` | boolean | `false` | Auto-adjust zoom to fit all visible persons |
 
 ### Center Options
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `use_current_user` | boolean | `true` | Center map on current user |
-| `entity_id` | string | | Specific entity to center on |
+| `type` | string | `'user'` | Center type: `user`, `visible`, `home`, `fixed`, or `person:<entity_id>` |
+| `home_zone` | string | | Zone entity ID for `home` center type |
+| `fixed_coordinates` | object | | `{ lat, lon }` for `fixed` center type |
+
+Center types:
+- `user` — Centers on the current logged-in user
+- `visible` — Centers on the centroid of all visible persons; with auto zoom uses `fitBounds`
+- `home` — Centers on a specified home zone
+- `fixed` — Centers on specified coordinates
+- `person:<entity_id>` — Centers on a specific person
+
+### Trail Options
+
+| Option | Type | Default | Description |
+|--------|------|--------|-------------|
+| `enabled` | boolean | `false` | Enable history trail |
+| `max_age` | number | `60` | Maximum history age in minutes |
+| `max_distance` | number | | Maximum trail distance from current user in meters (0 or unset = use display rule threshold) |
+| `proximity` | number | `50` | Hide trail points within this many meters of the person's current position |
+| `newest_opacity` | number | `1` | Opacity of newest trail points (0-1) |
+| `oldest_opacity` | number | `0.3` | Opacity of oldest trail points (0-1) |
+| `midpoint` | number | `50` | Opacity fade curve offset (0=steep then slow, 100=slow then steep) |
+| `colors` | object | | Per-person trail color overrides by entity_id (e.g., `{ "person.dad": "#e6194b" }`) |
+
+Trail colors are auto-assigned from a 20-color palette if not overridden per person.
 
 ## Sensors
 
@@ -193,7 +227,7 @@ display_rules:
 
 ## Distance Sensor
 
-The special `distance` sensor calculates the distance (in meters) from the person to the `current_user`. This uses the GPS coordinates from both entities.
+The special `distance` sensor calculates the distance (in meters) from the person to the current user. This uses the GPS coordinates from both entities.
 
 Example rule: Show when within 1km:
 ```yaml
@@ -201,6 +235,12 @@ Example rule: Show when within 1km:
   operator: <
   value: "1000"
 ```
+
+## Overlay
+
+When `show_auto_zoom` or `show_toggle_buttons` is enabled, an overlay appears in the top-right corner of the map:
+- **Auto zoom button** — Re-centers and zooms the map to fit all currently visible persons
+- **Per-person toggle buttons** — Show/hide individual persons on the map
 
 ## Development
 
