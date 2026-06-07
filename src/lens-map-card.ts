@@ -334,7 +334,7 @@ class LensMapCard extends LitElement {
         if (markers.length === 0) return;
 
         const group = window.L.featureGroup(markers);
-        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: true, maxZoom: this.zoom?.level ?? 18 });
+        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
     }
 
     private _getTrailColor(person: PersonConfig, idx: number): string {
@@ -589,6 +589,11 @@ class LensMapCard extends LitElement {
 
         if (centerType === 'fixed') return;
 
+        if (centerType === 'visible' && this.zoom?.auto_level) {
+            this._fitMapToVisibleMarkers();
+            return;
+        }
+
         let target: { lat: number; lon: number } | null = null;
 
         if (centerType === 'visible') {
@@ -606,13 +611,7 @@ class LensMapCard extends LitElement {
         }
 
         this._lastCenterPos = { lat: target.lat, lng: target.lon };
-
-        if (centerType === 'visible' && this.zoom?.auto_level) {
-            this._fitMapToVisibleMarkers();
-        } else {
-            const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
-            this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
-        }
+        this._leafletMap.setView([target.lat, target.lon], this._leafletMap.getZoom(), { animate: true });
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
