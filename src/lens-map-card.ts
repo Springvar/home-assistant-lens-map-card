@@ -96,6 +96,7 @@ class LensMapCard extends LitElement {
     private _mapInitialized = false;
     private _positionHistory: Map<string, Array<{ lat: number; lon: number; ts: number }>> = new Map();
     private _trailLayers: Map<string, { polyline: any; circles: any[] }> = new Map();
+    private _fetchingHistory = false;
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -205,6 +206,7 @@ class LensMapCard extends LitElement {
             setTimeout(() => {
                 this._updateTrails();
                 this._updateMarkers();
+                this._fetchTrailHistory();
             }, 0);
         }
     }
@@ -304,6 +306,7 @@ class LensMapCard extends LitElement {
         this._addTileLayer();
         this._updateTrails();
         this._updateMarkers();
+        this._fetchTrailHistory();
 
         if (this.center?.type === 'visible') {
             this._fitMapToVisibleMarkers();
@@ -327,14 +330,91 @@ class LensMapCard extends LitElement {
         return TRAIL_COLORS[idx % TRAIL_COLORS.length];
     }
 
+    private async _fetchTrailHistory() {
+        if (this._fetchingHistory || !this._hass?.connection || !this.persons.length) return;
+        this._fetchingHistory = true;
+
+        const maxAge = this.trail?.max_age ?? 60;
+        const startTime = new Date(Date.now() - maxAge * 60 * 1000).toISOString();
+
+        const allDeviceTrackers: string[] = [];
+        const personTrackers = new Map<string, string[]>();
+
+        for (const person of this.persons) {
+            const stateObj = this._hass!.states[person.entity_id];
+            const trackers: string[] = stateObj?.attributes?.device_trackers || [];
+            personTrackers.set(person.entity_id, trackers);
+            for (const t of trackers) {
+                if (!allDeviceTrackers.includes(t)) allDeviceTrackers.push(t);
+            }
+        }
+
+        if (allDeviceTrackers.length === 0) {
+            this._fetchingHistory = false;
+            return;
+        }
+
+        try {
+            const result: any[][] = await this._hass.connection.sendMessagePromise({
+                type: 'history/period',
+                start_time: startTime,
+                entity_ids: allDeviceTrackers,
+                minimal_response: false,
+                significant_changes_only: false
+            });
+
+            const trackerStates = new Map<string, any[]>();
+            for (const states of result) {
+                if (states.length === 0) continue;
+                trackerStates.set(states[0].entity_id, states);
+            }
+
+            for (const person of this.persons) {
+                const trackers = personTrackers.get(person.entity_id) || [];
+                const allPoints: Array<{ lat: number; lon: number; ts: number }> = [];
+
+                for (const trackerId of trackers) {
+                    const states = trackerStates.get(trackerId) || [];
+                    for (const state of states) {
+                        const lat = state.attributes?.latitude;
+                        const lon = state.attributes?.longitude;
+                        if (typeof lat === 'number' && typeof lon === 'number') {
+                            const ts = new Date(state.last_updated || state.last_changed).getTime();
+                            if (!isNaN(ts)) {
+                                allPoints.push({ lat, lon, ts });
+                            }
+                        }
+                    }
+                }
+
+                allPoints.sort((a, b) => a.ts - b.ts);
+
+                const deduped: typeof allPoints = [];
+                for (const p of allPoints) {
+                    const last = deduped[deduped.length - 1];
+                    if (!last || last.lat !== p.lat || last.lon !== p.lon) {
+                        deduped.push(p);
+                    }
+                }
+
+                if (deduped.length > 0) {
+                    this._positionHistory.set(person.entity_id, deduped);
+                }
+            }
+        } catch (e) {
+            console.error('[LensMap] Failed to fetch trail history:', e);
+        }
+
+        this._fetchingHistory = false;
+        this._drawTrails();
+    }
+
     private _updateTrails() {
         if (!this._leafletMap || !this._hass) return;
         const enabled = this.trail?.enabled;
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
         const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
         const now = Date.now();
-
-        console.log('[LensMap] _updateTrails called, enabled:', enabled, 'persons:', this.persons.length, 'posHistory size:', this._positionHistory.size);
 
         if (!enabled) {
             this._clearTrails();
@@ -343,10 +423,7 @@ class LensMapCard extends LitElement {
 
         for (const person of this.persons) {
             const location = getLocation(this._hass, person.entity_id);
-            if (!location) {
-                console.log('[LensMap] _updateTrails: no location for', person.entity_id);
-                continue;
-            }
+            if (!location) continue;
 
             let distOk = true;
             if (maxDistance > 0) {
@@ -360,13 +437,10 @@ class LensMapCard extends LitElement {
             let history = this._positionHistory.get(person.entity_id) || [];
 
             const last = history[history.length - 1];
-            const moved = !last || last.lat !== location.latitude || last.lon !== location.longitude;
+            const isDuplicate = last && last.lat === location.latitude && last.lon === location.longitude;
 
-            console.log('[LensMap] _updateTrails:', person.entity_id, 'location:', location.latitude, location.longitude, 'moved:', moved, 'distOk:', distOk, 'history:', history.length);
-
-            if (moved && distOk) {
+            if (!isDuplicate && distOk) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
-                console.log('[LensMap] _updateTrails: pushed point, history:', history.length);
             }
 
             history = history.filter(p => (now - p.ts) <= maxAgeMs);
@@ -393,15 +467,9 @@ class LensMapCard extends LitElement {
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
         const now = Date.now();
 
-        let drawn = 0;
         for (const [idx, person] of this.persons.entries()) {
             const history = this._positionHistory.get(person.entity_id);
-            if (!history || history.length < 2) {
-                if (history?.length === 1) {
-                    console.log('[LensMap] _drawTrails:', person.entity_id, 'only 1 point, skipping');
-                }
-                continue;
-            }
+            if (!history || history.length < 2) continue;
 
             const color = this._getTrailColor(person, idx);
             const latlngs: [number, number][] = history.map(p => [p.lat, p.lon]);
@@ -428,9 +496,7 @@ class LensMapCard extends LitElement {
             });
 
             this._trailLayers.set(person.entity_id, { polyline, circles });
-            drawn++;
         }
-        console.log('[LensMap] _drawTrails: drawn', drawn, 'trails');
     }
 
     private _setupResizeObserver(container: HTMLElement) {
