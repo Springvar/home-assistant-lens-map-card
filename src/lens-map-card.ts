@@ -100,7 +100,7 @@ class LensMapCard extends LitElement {
     @state() private _autoZoomEnabled: boolean = false;
 
     private get _effectiveAutoZoom(): boolean {
-        return this._autoZoomEnabled && this.zoom?.auto_level === true;
+        return this._autoZoomEnabled;
     }
 
     static async getConfigElement(config: LensMapCardConfig) {
@@ -212,6 +212,7 @@ class LensMapCard extends LitElement {
         this.show_title = config.show_title !== false;
         this.show_auto_zoom = config.show_auto_zoom !== false;
         this.show_toggle_buttons = config.show_toggle_buttons !== false;
+        this._autoZoomEnabled = this.zoom?.auto_level === true;
 
         if (this._leafletLoaded) {
             setTimeout(() => {
@@ -903,7 +904,7 @@ class LensMapCard extends LitElement {
                 <div class="map-wrapper">
                     <div id="map-container" class="map-container"></div>
                     <div class="map-overlay">
-                        ${this.zoom?.auto_level && this.show_auto_zoom ? html`
+                        ${this.show_auto_zoom ? html`
                             <button class="overlay-btn ${this._effectiveAutoZoom ? 'active' : ''}"
                                     @click=${this._toggleAutoZoom}
                                     title="${this._effectiveAutoZoom ? 'Disable' : 'Enable'} auto zoom">
