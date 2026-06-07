@@ -171,6 +171,7 @@ class LensMapCard extends LitElement {
         this._initScheduled = false;
         this._clearTrails();
         this._positionHistory.clear();
+        this._markers.clear();
         if (this._resizeObserver) {
             this._resizeObserver.disconnect();
             this._resizeObserver = null;
@@ -179,6 +180,7 @@ class LensMapCard extends LitElement {
             this._leafletMap.remove();
             this._leafletMap = null;
         }
+        this._mapInitialized = false;
     }
 
     firstUpdated() {
@@ -200,7 +202,10 @@ class LensMapCard extends LitElement {
         this.show_title = config.show_title !== false;
 
         if (this._leafletLoaded) {
-            setTimeout(() => this._updateMarkers(), 0);
+            setTimeout(() => {
+                this._updateTrails();
+                this._updateMarkers();
+            }, 0);
         }
     }
 
@@ -352,7 +357,7 @@ class LensMapCard extends LitElement {
             const last = history[history.length - 1];
             const moved = !last || last.lat !== location.latitude || last.lon !== location.longitude;
 
-            if (moved && distOk && (!last || (now - last.ts) > 5000)) {
+            if (moved && distOk) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
             }
 
