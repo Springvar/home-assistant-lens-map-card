@@ -50,6 +50,9 @@ export interface TrailConfig {
     max_age?: number;
     max_distance?: number;
     proximity?: number;
+    newest_opacity?: number;
+    oldest_opacity?: number;
+    midpoint?: number;
     colors?: Record<string, string>;
 }
 

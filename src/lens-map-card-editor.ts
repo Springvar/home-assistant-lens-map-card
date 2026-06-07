@@ -340,6 +340,24 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _trailNewestOpacityChanged(e: Event) {
+        const value = parseFloat((e.target as HTMLInputElement).value);
+        this._config = { ...this._config, trail: { ...this._config.trail, newest_opacity: value } };
+        this._emitConfigChanged();
+    }
+
+    private _trailOldestOpacityChanged(e: Event) {
+        const value = parseFloat((e.target as HTMLInputElement).value);
+        this._config = { ...this._config, trail: { ...this._config.trail, oldest_opacity: value } };
+        this._emitConfigChanged();
+    }
+
+    private _trailMidpointChanged(e: Event) {
+        const value = parseInt((e.target as HTMLInputElement).value);
+        this._config = { ...this._config, trail: { ...this._config.trail, midpoint: value } };
+        this._emitConfigChanged();
+    }
+
     private _trailColorChanged(entityId: string, e: Event) {
         const value = (e.target as HTMLInputElement).value;
         const colors = { ...(this._config.trail?.colors || {}) };
@@ -515,6 +533,19 @@ export class LensMapCardEditor extends LitElement {
                             <div style="margin-top: 0.5em;">
                                 <label>Hide trail points within (meters of person):</label>
                                 <input type="number" .value=${this._config.trail?.proximity ?? 50} min="0" step="10" @input=${this._trailProximityChanged} style="width: 80px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Newest point opacity:</label>
+                                <input type="number" .value=${this._config.trail?.newest_opacity ?? 1} min="0" max="1" step="0.05" @input=${this._trailNewestOpacityChanged} style="width: 60px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Oldest point opacity:</label>
+                                <input type="number" .value=${this._config.trail?.oldest_opacity ?? 0.3} min="0" max="1" step="0.05" @input=${this._trailOldestOpacityChanged} style="width: 60px;" />
+                            </div>
+                            <div style="margin-top: 0.5em;">
+                                <label>Midpoint offset (0=steep then slow, 100=slow then steep):</label>
+                                <input type="range" .value=${this._config.trail?.midpoint ?? 50} min="0" max="100" @input=${this._trailMidpointChanged} style="width: 150px; vertical-align: middle;" />
+                                <span style="margin-left: 0.5em; font-size: 0.85em; color: #666;">${this._config.trail?.midpoint ?? 50}</span>
                             </div>
                             <div style="margin-top: 0.5em;">
                                 <strong>Per-person colors</strong>

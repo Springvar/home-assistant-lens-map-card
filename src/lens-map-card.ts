@@ -583,8 +583,13 @@ class LensMapCard extends LitElement {
 
             const circles = filteredHistory.map(p => {
                 const age = now - p.ts;
-                const ratio = Math.max(0, 1 - age / maxAgeMs);
-                const opacity = 0.5 + ratio * 0.5;
+                const t = Math.max(0, Math.min(1, age / maxAgeMs));
+                const newestOpacity = this.trail?.newest_opacity ?? 1;
+                const oldestOpacity = this.trail?.oldest_opacity ?? 0.3;
+                const mid = this.trail?.midpoint ?? 50;
+                const exponent = Math.pow(5, (mid - 50) / 50);
+                const adjustedT = Math.pow(t, exponent);
+                const opacity = newestOpacity - (newestOpacity - oldestOpacity) * adjustedT;
                 const radius = age === 0 ? 6 : 4;
                 return window.L.circleMarker([p.lat, p.lon], {
                     radius,
