@@ -313,9 +313,13 @@ class LensMapCard extends LitElement {
         this._fetchTrailHistory();
 
         if (this.center?.type === 'visible') {
-            const vc = this._getVisibleCenter();
-            if (vc) {
-                this._leafletMap.setView([vc.lat, vc.lon], zoomLevel, { animate: false });
+            if (this.zoom?.auto_level) {
+                this._fitMapToVisibleMarkers();
+            } else {
+                const vc = this._getVisibleCenter();
+                if (vc) {
+                    this._leafletMap.setView([vc.lat, vc.lon], zoomLevel, { animate: false });
+                }
             }
         }
 
@@ -602,8 +606,13 @@ class LensMapCard extends LitElement {
         }
 
         this._lastCenterPos = { lat: target.lat, lng: target.lon };
-        const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
-        this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
+
+        if (centerType === 'visible' && this.zoom?.auto_level) {
+            this._fitMapToVisibleMarkers();
+        } else {
+            const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
+            this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
+        }
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
