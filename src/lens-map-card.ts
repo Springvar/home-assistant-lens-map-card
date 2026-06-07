@@ -488,12 +488,12 @@ class LensMapCard extends LitElement {
             const history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
 
-            const personLoc = getLocation(this._hass, person.entity_id);
+            const userLoc = this._getCurrentUserLocation();
             let filteredHistory = history;
             const kept = new Array(history.length).fill(true);
-            if (maxDistance > 0 && personLoc) {
+            if (maxDistance > 0 && userLoc) {
                 for (let i = 0; i < history.length; i++) {
-                    const d = haversine(personLoc.latitude, personLoc.longitude, history[i].lat, history[i].lon);
+                    const d = haversine(userLoc.latitude, userLoc.longitude, history[i].lat, history[i].lon);
                     if (d > maxDistance) kept[i] = false;
                 }
                 filteredHistory = history.filter((_, i) => kept[i]);
