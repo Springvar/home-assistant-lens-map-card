@@ -329,6 +329,12 @@ class LensMapCard extends LitElement {
                     this._leafletMap.setView([vc.lat, vc.lon], zoomLevel, { animate: false });
                 }
             }
+        } else if (this.zoom?.auto_level) {
+            const layers = this._getVisibleLayers();
+            if (layers.length > 0) {
+                const group = window.L.featureGroup(layers);
+                this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+            }
         }
 
         this._setupResizeObserver(mapContainer);
@@ -650,7 +656,7 @@ class LensMapCard extends LitElement {
 
         if (centerType === 'fixed') return;
 
-        if (centerType === 'visible' && this.zoom?.auto_level) {
+        if (centerType === 'visible' && this._effectiveAutoZoom) {
             this._fitMapToVisibleMarkers();
             return;
         }
@@ -672,7 +678,16 @@ class LensMapCard extends LitElement {
         }
 
         this._lastCenterPos = { lat: target.lat, lng: target.lon };
-        this._leafletMap.setView([target.lat, target.lon], this._leafletMap.getZoom(), { animate: true });
+        const zoom = this._effectiveAutoZoom ? this._getFitZoom() : this._leafletMap.getZoom();
+        this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
+    }
+
+    private _getFitZoom(): number {
+        const layers = this._getVisibleLayers();
+        if (layers.length === 0) return this._leafletMap.getZoom();
+        const group = window.L.featureGroup(layers);
+        const bounds = group.getBounds();
+        return this._leafletMap.getBoundsZoom(bounds);
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
@@ -850,8 +865,13 @@ class LensMapCard extends LitElement {
         if (this._leafletMap) {
             this._updateMarkers();
             this._drawTrails();
-            if (this.center?.type === 'visible' && this._effectiveAutoZoom) {
-                this._fitMapToVisibleMarkers();
+            if (this._effectiveAutoZoom) {
+                if (this.center?.type === 'visible') {
+                    this._fitMapToVisibleMarkers();
+                } else {
+                    const loc = this._getMapCenter();
+                    if (loc) this._leafletMap.setView([loc.latitude, loc.longitude], this._getFitZoom(), { animate: true });
+                }
             }
         }
     }
@@ -863,7 +883,7 @@ class LensMapCard extends LitElement {
                 this._fitMapToVisibleMarkers();
             } else {
                 const loc = this._getMapCenter();
-                if (loc) this._leafletMap.setView([loc.latitude, loc.longitude], this._leafletMap.getZoom(), { animate: true });
+                if (loc) this._leafletMap.setView([loc.latitude, loc.longitude], this._getFitZoom(), { animate: true });
             }
         }
     }
