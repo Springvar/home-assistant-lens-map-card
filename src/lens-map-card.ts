@@ -356,18 +356,13 @@ class LensMapCard extends LitElement {
 
         try {
             const url = `/api/history/period/${encodeURIComponent(startTime)}?filter_entity_id=${allDeviceTrackers.join(',')}`;
-            let result: any[][];
-
-            if (typeof this._hass.callApi === 'function') {
-                result = await this._hass.callApi('GET', url);
-            } else {
-                const headers: Record<string, string> = {
-                    'Authorization': `Bearer ${(this._hass as any)?.auth?.access_token || ''}`
-                };
-                const resp = await fetch(url, { headers, credentials: 'same-origin' });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                result = await resp.json();
-            }
+            const auth = (this._hass as any).auth;
+            const token = auth?.access_token || auth?.data?.access_token || '';
+            const resp = await fetch(url, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const result: any[][] = await resp.json();
 
             const trackerStates = new Map<string, any[]>();
             for (const states of result) {
