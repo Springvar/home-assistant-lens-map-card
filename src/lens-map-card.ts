@@ -97,6 +97,7 @@ class LensMapCard extends LitElement {
     private _positionHistory: Map<string, Array<{ lat: number; lon: number; ts: number }>> = new Map();
     private _trailLayers: Map<string, { polyline: any; circles: any[] }> = new Map();
     private _fetchingHistory = false;
+    private _lastCenterPos: { lat: number; lng: number } | null = null;
 
     static async getConfigElement(config: LensMapCardConfig) {
         await import('./lens-map-card-editor');
@@ -183,6 +184,7 @@ class LensMapCard extends LitElement {
             this._leafletMap = null;
         }
         this._mapInitialized = false;
+        this._lastCenterPos = null;
     }
 
     firstUpdated() {
@@ -319,6 +321,7 @@ class LensMapCard extends LitElement {
 
         this._setupResizeObserver(mapContainer);
         this._mapInitialized = true;
+        this._lastCenterPos = null;
     }
 
     private _fitMapToVisibleMarkers() {
@@ -582,18 +585,25 @@ class LensMapCard extends LitElement {
 
         if (centerType === 'fixed') return;
 
+        let target: { lat: number; lon: number } | null = null;
+
         if (centerType === 'visible') {
-            const center = this._getVisibleCenter();
-            if (!center) return;
-            this._leafletMap.setView([center.lat, center.lon], this._leafletMap.getZoom(), { animate: true });
-            return;
+            target = this._getVisibleCenter();
+        } else {
+            const loc = this._getMapCenter();
+            if (loc) target = { lat: loc.latitude, lon: loc.longitude };
         }
 
-        const loc = this._getMapCenter();
-        if (!loc) return;
+        if (!target) return;
 
+        if (this._lastCenterPos) {
+            const d = haversine(this._lastCenterPos.lat, this._lastCenterPos.lng, target.lat, target.lon);
+            if (d <= 0.1) return;
+        }
+
+        this._lastCenterPos = { lat: target.lat, lng: target.lon };
         const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
-        this._leafletMap.setView([loc.latitude, loc.longitude], zoom, { animate: true });
+        this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
