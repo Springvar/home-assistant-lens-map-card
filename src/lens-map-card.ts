@@ -288,6 +288,7 @@ class LensMapCard extends LitElement {
         const mapCenter = this._getMapCenter();
         const centerLat = mapCenter?.latitude || 0;
         const centerLon = mapCenter?.longitude || 0;
+
         const zoomLevel = this.zoom?.level ?? 13;
 
         const interactive = this.map?.interactive !== false;
@@ -310,7 +311,10 @@ class LensMapCard extends LitElement {
         this._fetchTrailHistory();
 
         if (this.center?.type === 'visible') {
-            this._fitMapToVisibleMarkers();
+            const vc = this._getVisibleCenter();
+            if (vc) {
+                this._leafletMap.setView([vc.lat, vc.lon], zoomLevel, { animate: false });
+            }
         }
 
         this._setupResizeObserver(mapContainer);
@@ -579,7 +583,9 @@ class LensMapCard extends LitElement {
         if (centerType === 'fixed') return;
 
         if (centerType === 'visible') {
-            this._fitMapToVisibleMarkers();
+            const center = this._getVisibleCenter();
+            if (!center) return;
+            this._leafletMap.setView([center.lat, center.lon], this._leafletMap.getZoom(), { animate: true });
             return;
         }
 
@@ -588,6 +594,15 @@ class LensMapCard extends LitElement {
 
         const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
         this._leafletMap.setView([loc.latitude, loc.longitude], zoom, { animate: true });
+    }
+
+    private _getVisibleCenter(): { lat: number; lon: number } | null {
+        const markers = Array.from(this._markers.values());
+        if (markers.length === 0) return null;
+        const latlngs = markers.map((m: any) => m.getLatLng());
+        const avgLat = latlngs.reduce((s: number, ll: any) => s + ll.lat, 0) / latlngs.length;
+        const avgLon = latlngs.reduce((s: number, ll: any) => s + ll.lng, 0) / latlngs.length;
+        return { lat: avgLat, lon: avgLon };
     }
 
     private _addTileLayer() {
