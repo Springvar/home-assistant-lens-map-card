@@ -829,8 +829,16 @@ class LensMapCard extends LitElement {
                 title: name
             }).addTo(this._leafletMap);
 
+            marker.setZIndexOffset(person.entity_id === this.current_user ? -1000 : 0);
+
             marker.bindPopup(`<strong>${name}</strong><br>${entityState}`);
             this._markers.set(person.entity_id, marker);
+        }
+
+        for (const [entityId, marker] of this._markers) {
+            if (visible.has(entityId) && entityId === this.current_user) {
+                marker.setZIndexOffset(-1000);
+            }
         }
 
         if (this.center?.type === 'visible' && !this._mapInitialized) {
