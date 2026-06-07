@@ -334,6 +334,8 @@ class LensMapCard extends LitElement {
         const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
         const now = Date.now();
 
+        console.log('[LensMap] _updateTrails called, enabled:', enabled, 'persons:', this.persons.length, 'posHistory size:', this._positionHistory.size);
+
         if (!enabled) {
             this._clearTrails();
             return;
@@ -341,7 +343,10 @@ class LensMapCard extends LitElement {
 
         for (const person of this.persons) {
             const location = getLocation(this._hass, person.entity_id);
-            if (!location) continue;
+            if (!location) {
+                console.log('[LensMap] _updateTrails: no location for', person.entity_id);
+                continue;
+            }
 
             let distOk = true;
             if (maxDistance > 0) {
@@ -357,8 +362,11 @@ class LensMapCard extends LitElement {
             const last = history[history.length - 1];
             const moved = !last || last.lat !== location.latitude || last.lon !== location.longitude;
 
+            console.log('[LensMap] _updateTrails:', person.entity_id, 'location:', location.latitude, location.longitude, 'moved:', moved, 'distOk:', distOk, 'history:', history.length);
+
             if (moved && distOk) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
+                console.log('[LensMap] _updateTrails: pushed point, history:', history.length);
             }
 
             history = history.filter(p => (now - p.ts) <= maxAgeMs);
@@ -385,9 +393,15 @@ class LensMapCard extends LitElement {
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
         const now = Date.now();
 
+        let drawn = 0;
         for (const [idx, person] of this.persons.entries()) {
             const history = this._positionHistory.get(person.entity_id);
-            if (!history || history.length < 2) continue;
+            if (!history || history.length < 2) {
+                if (history?.length === 1) {
+                    console.log('[LensMap] _drawTrails:', person.entity_id, 'only 1 point, skipping');
+                }
+                continue;
+            }
 
             const color = this._getTrailColor(person, idx);
             const latlngs: [number, number][] = history.map(p => [p.lat, p.lon]);
@@ -414,7 +428,9 @@ class LensMapCard extends LitElement {
             });
 
             this._trailLayers.set(person.entity_id, { polyline, circles });
+            drawn++;
         }
+        console.log('[LensMap] _drawTrails: drawn', drawn, 'trails');
     }
 
     private _setupResizeObserver(container: HTMLElement) {
