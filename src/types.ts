@@ -29,6 +29,7 @@ export interface MapConfig {
     type?: 'none' | 'system' | 'bw' | 'light' | 'color' | 'dark' | 'voyager' | 'satellite' | 'topo' | 'outlines';
     opacity?: number;
     api_key?: string;
+    interactive?: boolean;
 }
 
 export interface ZoomConfig {
@@ -47,5 +48,6 @@ export interface CenterConfig {
 export interface TrailConfig {
     enabled?: boolean;
     max_age?: number;
+    max_distance?: number;
     colors?: Record<string, string>;
 }

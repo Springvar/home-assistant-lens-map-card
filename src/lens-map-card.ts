@@ -282,12 +282,18 @@ class LensMapCard extends LitElement {
         const centerLon = mapCenter?.longitude || 0;
         const zoomLevel = this.zoom?.level ?? 13;
 
+        const interactive = this.map?.interactive !== false;
+
         this._leafletMap = window.L.map(mapContainer, {
             center: [centerLat, centerLon],
             zoom: zoomLevel,
-            zoomControl: true,
-            dragging: true,
-            scrollWheelZoom: true
+            zoomControl: interactive,
+            dragging: interactive,
+            scrollWheelZoom: interactive,
+            boxZoom: interactive,
+            doubleClickZoom: interactive,
+            keyboard: interactive,
+            touchZoom: interactive
         });
 
         this._addTileLayer();
@@ -320,6 +326,7 @@ class LensMapCard extends LitElement {
         if (!this._leafletMap || !this._hass) return;
         const enabled = this.trail?.enabled;
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
+        const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
         const now = Date.now();
 
         if (!enabled) {
@@ -331,12 +338,21 @@ class LensMapCard extends LitElement {
             const location = getLocation(this._hass, person.entity_id);
             if (!location) continue;
 
+            let distOk = true;
+            if (maxDistance > 0) {
+                const currentUserLoc = this._getCurrentUserLocation();
+                if (currentUserLoc) {
+                    const d = haversine(currentUserLoc.latitude, currentUserLoc.longitude, location.latitude, location.longitude);
+                    if (d > maxDistance) distOk = false;
+                }
+            }
+
             let history = this._positionHistory.get(person.entity_id) || [];
 
             const last = history[history.length - 1];
             const moved = !last || last.lat !== location.latitude || last.lon !== location.longitude;
 
-            if (moved && (!last || (now - last.ts) > 5000)) {
+            if (moved && distOk && (!last || (now - last.ts) > 5000)) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
             }
 

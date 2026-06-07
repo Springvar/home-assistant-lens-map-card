@@ -235,6 +235,12 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _mapInteractiveChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, map: { ...this._config.map, interactive: checked } };
+        this._emitConfigChanged();
+    }
+
     private _zoomLevelChanged(e: Event) {
         const value = parseInt((e.target as HTMLSelectElement).value);
         this._config = { ...this._config, zoom: { ...this._config.zoom, level: value } };
@@ -304,6 +310,12 @@ export class LensMapCardEditor extends LitElement {
     private _trailMaxAgeChanged(e: Event) {
         const value = parseInt((e.target as HTMLInputElement).value) || 60;
         this._config = { ...this._config, trail: { ...this._config.trail, max_age: value } };
+        this._emitConfigChanged();
+    }
+
+    private _trailMaxDistanceChanged(e: Event) {
+        const value = (e.target as HTMLInputElement).value;
+        this._config = { ...this._config, trail: { ...this._config.trail, max_distance: value ? parseFloat(value) : undefined } };
         this._emitConfigChanged();
     }
 
@@ -492,6 +504,12 @@ export class LensMapCardEditor extends LitElement {
                             <label>API Key (optional):</label>
                             <input type="text" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="For Stadia Maps" style="width: 200px;" />
                         </div>
+                        <div>
+                            <label>
+                                <input type="checkbox" .checked=${this._config.map?.interactive !== false} @change=${this._mapInteractiveChanged} />
+                                Interactive (zoom, pan, scroll)
+                            </label>
+                        </div>
                     </div>
                 </details>
 
@@ -586,6 +604,10 @@ export class LensMapCardEditor extends LitElement {
                         <div style="margin-top: 0.5em;">
                             <label>Max history age (minutes):</label>
                             <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
+                        </div>
+                        <div style="margin-top: 0.5em;">
+                            <label>Max trail distance (meters, 0 = use default rule):</label>
+                            <input type="number" .value=${this._config.trail?.max_distance ?? ''} min="0" step="100" @input=${this._trailMaxDistanceChanged} style="width: 100px;" />
                         </div>
                         <div style="margin-top: 0.5em;">
                             <strong>Per-person colors</strong>
