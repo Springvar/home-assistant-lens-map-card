@@ -89,7 +89,7 @@ class LensMapCard extends LitElement {
     private _initScheduled = false;
     private _mapInitialized = false;
     private _positionHistory: Map<string, Array<{ lat: number; lon: number; ts: number }>> = new Map();
-    private _trailLayers: Map<string, { polyline: any; circles: any[] }> = new Map();
+    private _trailLayers: Map<string, { polylines: any[]; circles: any[] }> = new Map();
     private _fetchingHistory = false;
     private _lastCenterPos: { lat: number; lng: number } | null = null;
 
@@ -467,8 +467,8 @@ class LensMapCard extends LitElement {
     }
 
     private _clearTrails() {
-        for (const { polyline, circles } of this._trailLayers.values()) {
-            polyline.remove();
+        for (const { polylines, circles } of this._trailLayers.values()) {
+            polylines.forEach(p => p.remove());
             circles.forEach(c => c.remove());
         }
         this._trailLayers.clear();
@@ -485,28 +485,42 @@ class LensMapCard extends LitElement {
         const now = Date.now();
 
         for (const [idx, person] of this.persons.entries()) {
-            let history = this._positionHistory.get(person.entity_id);
+            const history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
 
             const personLoc = getLocation(this._hass, person.entity_id);
+            let filteredHistory = history;
+            const kept = new Array(history.length).fill(true);
             if (maxDistance > 0 && personLoc) {
-                history = history.filter(p => {
-                    const d = haversine(personLoc.latitude, personLoc.longitude, p.lat, p.lon);
-                    return d <= maxDistance;
-                });
-                if (history.length < 2) continue;
+                for (let i = 0; i < history.length; i++) {
+                    const d = haversine(personLoc.latitude, personLoc.longitude, history[i].lat, history[i].lon);
+                    if (d > maxDistance) kept[i] = false;
+                }
+                filteredHistory = history.filter((_, i) => kept[i]);
+                if (filteredHistory.length < 2) continue;
             }
 
             const color = this._getTrailColor(person, idx);
-            const latlngs: [number, number][] = history.map(p => [p.lat, p.lon]);
 
-            const polyline = window.L.polyline(latlngs, {
-                color,
-                weight: 3,
-                opacity: 0.7
-            }).addTo(this._leafletMap);
+            const polylines: any[] = [];
+            let segStart: number | null = null;
+            for (let i = 0; i < history.length; i++) {
+                if (kept[i]) {
+                    if (segStart === null) segStart = i;
+                } else {
+                    if (segStart !== null && i - segStart >= 2) {
+                        const seg = history.slice(segStart, i).map(p => [p.lat, p.lon] as [number, number]);
+                        polylines.push(window.L.polyline(seg, { color, weight: 3, opacity: 0.7 }).addTo(this._leafletMap));
+                    }
+                    segStart = null;
+                }
+            }
+            if (segStart !== null && history.length - segStart >= 2) {
+                const seg = history.slice(segStart).map(p => [p.lat, p.lon] as [number, number]);
+                polylines.push(window.L.polyline(seg, { color, weight: 3, opacity: 0.7 }).addTo(this._leafletMap));
+            }
 
-            const circles = history.map(p => {
+            const circles = filteredHistory.map(p => {
                 const age = now - p.ts;
                 const ratio = Math.max(0, 1 - age / maxAgeMs);
                 const opacity = 0.5 + ratio * 0.5;
@@ -521,7 +535,7 @@ class LensMapCard extends LitElement {
                 }).addTo(this._leafletMap);
             });
 
-            this._trailLayers.set(person.entity_id, { polyline, circles });
+            this._trailLayers.set(person.entity_id, { polylines, circles });
         }
     }
 
