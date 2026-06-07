@@ -481,20 +481,31 @@ class LensMapCard extends LitElement {
         if (!enabled || !this._leafletMap) return;
 
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
-        const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
+        const trailMaxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
         const now = Date.now();
 
         for (const [idx, person] of this.persons.entries()) {
             const history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
 
+            const isVisible = this._evaluatePersonDisplayRules(person);
             const userLoc = this._getCurrentUserLocation();
+
+            let filterDistance = trailMaxDistance;
+            if (!isVisible) {
+                const rules = (person.displayRules?.length ? person.displayRules : this.display_rules) || [];
+                const distRule = rules.find(r => r.sensor === 'distance' && (r.operator === '<' || r.operator === '<='));
+                if (distRule) {
+                    filterDistance = parseFloat(distRule.value);
+                }
+            }
+
             let filteredHistory = history;
             const kept = new Array(history.length).fill(true);
-            if (maxDistance > 0 && userLoc) {
+            if (filterDistance > 0 && userLoc) {
                 for (let i = 0; i < history.length; i++) {
                     const d = haversine(userLoc.latitude, userLoc.longitude, history[i].lat, history[i].lon);
-                    if (d > maxDistance) kept[i] = false;
+                    if (d > filterDistance) kept[i] = false;
                 }
                 filteredHistory = history.filter((_, i) => kept[i]);
                 if (filteredHistory.length < 2) continue;
