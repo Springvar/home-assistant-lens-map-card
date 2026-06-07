@@ -140,6 +140,7 @@ class LensMapCard extends LitElement {
             if (this._leafletMap) {
                 this._updateTrails();
                 this._updateMarkers();
+                this._recenterMap();
             } else {
                 this._scheduleMapInit();
             }
@@ -322,7 +323,7 @@ class LensMapCard extends LitElement {
         if (markers.length === 0) return;
 
         const group = window.L.featureGroup(markers);
-        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false });
+        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: true, maxZoom: this.zoom?.level ?? 18 });
     }
 
     private _getTrailColor(person: PersonConfig, idx: number): string {
@@ -569,6 +570,24 @@ class LensMapCard extends LitElement {
         }
 
         return null;
+    }
+
+    private _recenterMap() {
+        if (!this._leafletMap || !this._mapInitialized) return;
+        const centerType = this.center?.type || 'user';
+
+        if (centerType === 'fixed') return;
+
+        if (centerType === 'visible') {
+            this._fitMapToVisibleMarkers();
+            return;
+        }
+
+        const loc = this._getMapCenter();
+        if (!loc) return;
+
+        const zoom = this.zoom?.auto_level ? undefined : this._leafletMap.getZoom();
+        this._leafletMap.setView([loc.latitude, loc.longitude], zoom, { animate: true });
     }
 
     private _addTileLayer() {
