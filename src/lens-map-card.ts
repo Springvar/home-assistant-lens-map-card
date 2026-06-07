@@ -364,6 +364,15 @@ class LensMapCard extends LitElement {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const result: any[][] = await resp.json();
 
+            console.log('[LensMap] history response entities:', result.length, 'trackers queried:', allDeviceTrackers);
+            for (const states of result) {
+                if (states.length === 0) continue;
+                const eid = states[0].entity_id;
+                const withLat = states.filter((s: any) => typeof s.attributes?.latitude === 'number').length;
+                const withLon = states.filter((s: any) => typeof s.attributes?.longitude === 'number').length;
+                console.log('[LensMap] history for', eid, '- records:', states.length, 'withLat:', withLat, 'withLon:', withLon);
+            }
+
             const trackerStates = new Map<string, any[]>();
             for (const states of result) {
                 if (states.length === 0) continue;
