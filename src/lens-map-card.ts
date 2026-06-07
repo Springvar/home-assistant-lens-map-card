@@ -330,13 +330,27 @@ class LensMapCard extends LitElement {
 
     private _fitMapToVisibleMarkers() {
         if (!this._leafletMap) return;
+        const layers = this._getVisibleLayers();
+        if (layers.length === 0) return;
+
+        const group = window.L.featureGroup(layers);
+        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+    }
+
+    private _getVisibleLayers(): any[] {
         const markers = Array.from(this._markers.entries())
             .filter(([eid]) => !this._hiddenPersons.has(eid))
             .map(([_, m]) => m);
-        if (markers.length === 0) return;
-
-        const group = window.L.featureGroup(markers);
-        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+        const trailCircles: any[] = [];
+        for (const person of this.persons) {
+            if (this._hiddenPersons.has(person.entity_id)) continue;
+            const isMarked = this._markers.has(person.entity_id);
+            if (!isMarked) {
+                const tl = this._trailLayers.get(person.entity_id);
+                if (tl) trailCircles.push(...tl.circles);
+            }
+        }
+        return [...markers, ...trailCircles];
     }
 
     private _getTrailColor(person: PersonConfig, idx: number): string {
@@ -654,11 +668,9 @@ class LensMapCard extends LitElement {
     }
 
     private _getVisibleCenter(): { lat: number; lon: number } | null {
-        const markers = Array.from(this._markers.entries())
-            .filter(([eid]) => !this._hiddenPersons.has(eid))
-            .map(([_, m]) => m);
-        if (markers.length === 0) return null;
-        const latlngs = markers.map((m: any) => m.getLatLng());
+        const layers = this._getVisibleLayers();
+        if (layers.length === 0) return null;
+        const latlngs = layers.map((m: any) => m.getLatLng());
         const avgLat = latlngs.reduce((s: number, ll: any) => s + ll.lat, 0) / latlngs.length;
         const avgLon = latlngs.reduce((s: number, ll: any) => s + ll.lng, 0) / latlngs.length;
         return { lat: avgLat, lon: avgLon };
