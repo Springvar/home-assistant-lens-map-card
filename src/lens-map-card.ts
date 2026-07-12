@@ -202,7 +202,16 @@ class LensMapCard extends LitElement {
 
     setConfig(config: LensMapCardConfig) {
         config = config || {};
-        this.persons = config.persons || [];
+
+        const migratedPersons = (config.persons || []).map(p => {
+            const person = { ...p };
+            if (!person.displayConditions && person.displayRules) {
+                person.displayConditions = migrateDisplayRules(person.displayRules);
+            }
+            return person;
+        });
+
+        this.persons = migratedPersons;
         this.current_user = config.current_user || '';
         this.display_rules = config.display_rules || [
             { id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }
@@ -214,12 +223,6 @@ class LensMapCard extends LitElement {
             this.displayConditions = migrateDisplayRules(this.display_rules);
         } else {
             this.displayConditions = [{ sensor: 'distance', comparator: 'lt', value: '1000' }];
-        }
-
-        for (const person of this.persons) {
-            if (!person.displayConditions && person.displayRules) {
-                person.displayConditions = migrateDisplayRules(person.displayRules);
-            }
         }
 
         this.map = config.map || { type: 'color', opacity: 1 };
