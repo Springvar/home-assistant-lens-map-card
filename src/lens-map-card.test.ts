@@ -81,3 +81,70 @@ describe('evaluateRule', () => {
         expect(evaluateRule({ operator: '=', value: 'home' }, 'away')).toBe(false);
     });
 });
+
+import { migrateDisplayRule, migrateDisplayRules } from './types';
+
+describe('migrateDisplayRule', () => {
+    it('converts a single DisplayRule to SensorCondition', () => {
+        const rule = { id: 'default', priority: 1, sensor: 'distance', operator: '<' as const, value: '1000', enabled: true };
+        const result = migrateDisplayRule(rule);
+        expect(result).toEqual({ sensor: 'distance', comparator: 'lt', value: '1000' });
+    });
+
+    it('maps all operator types correctly', () => {
+        const operators = [
+            { old: '<' as const, new: 'lt' },
+            { old: '<=' as const, new: 'lte' },
+            { old: '>' as const, new: 'gt' },
+            { old: '>=' as const, new: 'gte' },
+            { old: '=' as const, new: 'eq' },
+            { old: '!=' as const, new: 'ne' },
+            { old: 'oneOf' as const, new: 'oneOf' },
+        ];
+        for (const { old, new: expected } of operators) {
+            const result = migrateDisplayRule({ id: 'r', priority: 1, sensor: 'state', operator: old, value: 'x', enabled: true });
+            expect(result.comparator).toBe(expected);
+        }
+    });
+});
+
+describe('migrateDisplayRules', () => {
+    it('returns empty array for empty input', () => {
+        expect(migrateDisplayRules([])).toEqual([]);
+    });
+
+    it('filters out disabled rules', () => {
+        const rules = [
+            { id: 'a', priority: 1, sensor: 'distance', operator: '<' as const, value: '100', enabled: false },
+            { id: 'b', priority: 2, sensor: 'state', operator: '=' as const, value: 'home', enabled: true },
+        ];
+        const result = migrateDisplayRules(rules);
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual({ sensor: 'state', comparator: 'eq', value: 'home' });
+    });
+
+    it('wraps single enabled rule directly (no AND group)', () => {
+        const rules = [
+            { id: 'a', priority: 1, sensor: 'distance', operator: '<' as const, value: '500', enabled: true },
+        ];
+        const result = migrateDisplayRules(rules);
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual({ sensor: 'distance', comparator: 'lt', value: '500' });
+    });
+
+    it('wraps multiple enabled rules in AND group', () => {
+        const rules = [
+            { id: 'a', priority: 2, sensor: 'distance', operator: '<' as const, value: '500', enabled: true },
+            { id: 'b', priority: 1, sensor: 'state', operator: '=' as const, value: 'home', enabled: true },
+        ];
+        const result = migrateDisplayRules(rules);
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual({
+            type: 'AND',
+            conditions: [
+                { sensor: 'distance', comparator: 'lt', value: '500' },
+                { sensor: 'state', comparator: 'eq', value: 'home' },
+            ],
+        });
+    });
+});

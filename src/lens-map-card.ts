@@ -2,13 +2,15 @@ import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import './lens-map-card-editor';
 import type { LensMapCardEditor } from './lens-map-card-editor';
-import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './types';
-import { TrailConfig, TRAIL_COLORS } from './types';
+import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig, DisplayCondition } from './types';
+import { TrailConfig, TRAIL_COLORS, migrateDisplayRules } from './types';
+import { evaluateConditions, extractDistanceThreshold } from './condition-evaluator';
 
 export interface LensMapCardConfig {
     persons: PersonConfig[];
     current_user?: string;
     display_rules?: DisplayRule[];
+    displayConditions?: DisplayCondition[];
     map?: MapConfig;
     zoom?: ZoomConfig;
     center?: CenterConfig;
@@ -75,6 +77,7 @@ class LensMapCard extends LitElement {
     @property({ type: Array }) declare persons: PersonConfig[];
     @property({ type: String }) declare current_user: string;
     @property({ type: Array }) declare display_rules: DisplayRule[];
+    @property({ type: Array }) declare displayConditions: DisplayCondition[];
     @property({ type: Object }) declare map: MapConfig;
     @property({ type: Object }) declare zoom: ZoomConfig;
     @property({ type: Object }) declare center: CenterConfig;
@@ -120,7 +123,7 @@ class LensMapCard extends LitElement {
         return {
             persons: [],
             current_user: '',
-            display_rules: [{ id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }],
+            displayConditions: [{ sensor: 'distance', comparator: 'lt', value: '1000' }],
             map: { type: 'color' },
             zoom: { level: 10 },
             center: { type: 'user' },
@@ -204,6 +207,21 @@ class LensMapCard extends LitElement {
         this.display_rules = config.display_rules || [
             { id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }
         ];
+
+        if (config.displayConditions) {
+            this.displayConditions = config.displayConditions;
+        } else if (config.display_rules) {
+            this.displayConditions = migrateDisplayRules(this.display_rules);
+        } else {
+            this.displayConditions = [{ sensor: 'distance', comparator: 'lt', value: '1000' }];
+        }
+
+        for (const person of this.persons) {
+            if (!person.displayConditions && person.displayRules) {
+                person.displayConditions = migrateDisplayRules(person.displayRules);
+            }
+        }
+
         this.map = config.map || { type: 'color', opacity: 1 };
         this.zoom = config.zoom || { level: 10, auto_level: false };
         this.center = config.center || { type: 'user' };
@@ -466,7 +484,7 @@ class LensMapCard extends LitElement {
         if (!this._leafletMap || !this._hass) return;
         const enabled = this.trail?.enabled;
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
-        const maxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
+        const maxDistance = this.trail?.max_distance ?? extractDistanceThreshold(this.displayConditions) ?? 1000;
         const now = Date.now();
 
         if (!enabled) {
@@ -519,7 +537,7 @@ class LensMapCard extends LitElement {
         if (!enabled || !this._leafletMap) return;
 
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
-        const trailMaxDistance = this.trail?.max_distance ?? parseFloat(this.display_rules?.find(r => r.id === 'default')?.value || '1000');
+        const trailMaxDistance = this.trail?.max_distance ?? extractDistanceThreshold(this.displayConditions) ?? 1000;
         const now = Date.now();
 
         for (const [idx, person] of this.persons.entries()) {
@@ -532,10 +550,12 @@ class LensMapCard extends LitElement {
 
             let filterDistance = trailMaxDistance;
             if (!isVisible) {
-                const rules = (person.displayRules?.length ? person.displayRules : this.display_rules) || [];
-                const distRule = rules.find(r => r.sensor === 'distance' && (r.operator === '<' || r.operator === '<='));
-                if (distRule) {
-                    filterDistance = parseFloat(distRule.value);
+                const personConditions = person.displayConditions?.length
+                    ? person.displayConditions
+                    : this.displayConditions || [];
+                const distThreshold = extractDistanceThreshold(personConditions);
+                if (distThreshold !== null) {
+                    filterDistance = distThreshold;
                 }
             }
 
@@ -846,46 +866,12 @@ class LensMapCard extends LitElement {
         }
     }
 
-    private _evaluatePersonDisplayRules(person: PersonConfig, _currentLat?: number, _currentLon?: number): boolean {
-        const rules = (person.displayRules?.length ? person.displayRules : this.display_rules) || [];
-        const enabledRules = rules.filter(r => r.enabled !== false).sort((a, b) => b.priority - a.priority);
-
-        if (enabledRules.length === 0) return true;
-
-        const currentUserLocation = this._getCurrentUserLocation();
-        const currentUserLat = currentUserLocation?.latitude;
-        const currentUserLon = currentUserLocation?.longitude;
-
-        for (const rule of enabledRules) {
-            if (!rule.sensor || !rule.operator || rule.value === undefined) continue;
-
-            let sensorValue: number | string = 0;
-
-            if (rule.sensor === 'distance' && currentUserLat !== undefined && currentUserLon !== undefined) {
-                const personLocation = getLocation(this._hass, person.entity_id);
-                if (personLocation) {
-                    sensorValue = haversine(currentUserLat, currentUserLon, personLocation.latitude, personLocation.longitude);
-                }
-            } else if (person.namedSensors?.[rule.sensor]) {
-                const sensor = person.namedSensors[rule.sensor];
-                const entityId = Array.isArray(sensor.entity_id) ? sensor.entity_id[0] : sensor.entity_id;
-                if (sensor.attribute) {
-                    sensorValue = getEntityAttr(this._hass, entityId, sensor.attribute);
-                } else {
-                    const state = getEntityState(this._hass, entityId);
-                    sensorValue = isNaN(parseFloat(state)) ? state : parseFloat(state);
-                }
-            } else {
-                const entityState = getEntityState(this._hass, person.entity_id);
-                sensorValue = isNaN(parseFloat(entityState)) ? entityState : parseFloat(entityState);
-            }
-
-            if (!evaluateRule(rule, sensorValue)) {
-                return false;
-            }
-        }
-
-        return true;
+    private _evaluatePersonDisplayRules(person: PersonConfig): boolean {
+        const conditions = person.displayConditions?.length
+            ? person.displayConditions
+            : this.displayConditions || [];
+        if (conditions.length === 0) return true;
+        return evaluateConditions(this._hass, person, this._getCurrentUserLocation(), conditions);
     }
 
     private _togglePerson(entityId: string) {

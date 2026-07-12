@@ -17,11 +17,36 @@ export interface DisplayRule {
     description?: string;
 }
 
+export type ConditionComparator = 'eq' | 'ne' | 'lt' | 'lte' | 'gt' | 'gte' | 'oneOf' | 'notOneOf';
+
+export const BUILT_IN_SENSORS = ['distance', 'state', 'who', 'where', 'when', 'user', 'random'] as const;
+export type BuiltInSensor = typeof BUILT_IN_SENSORS[number];
+
+export interface SensorCondition {
+    sensor: string;
+    comparator: ConditionComparator;
+    value: unknown;
+    attribute?: string;
+}
+
+export interface GroupCondition {
+    type: 'AND' | 'OR';
+    conditions: DisplayCondition[];
+}
+
+export interface NotCondition {
+    type: 'NOT';
+    condition: DisplayCondition;
+}
+
+export type DisplayCondition = SensorCondition | GroupCondition | NotCondition;
+
 export interface PersonConfig {
     entity_id: string;
     name?: string;
     namedSensors?: PersonSensors;
     displayRules?: DisplayRule[];
+    displayConditions?: DisplayCondition[];
     showOnMap?: boolean;
 }
 
@@ -62,3 +87,26 @@ export const TRAIL_COLORS = [
     '#469990', '#dcbeff', '#9a6324', '#fffac8', '#800000',
     '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9'
 ];
+
+const OPERATOR_MAP: Record<string, ConditionComparator> = {
+    '<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte', '=': 'eq', '!=': 'ne', 'oneOf': 'oneOf'
+};
+
+export function migrateDisplayRule(rule: DisplayRule): SensorCondition {
+    return {
+        sensor: rule.sensor,
+        comparator: OPERATOR_MAP[rule.operator] || 'eq',
+        value: rule.value,
+    };
+}
+
+export function migrateDisplayRules(rules: DisplayRule[]): DisplayCondition[] {
+    const enabled = rules.filter(r => r.enabled !== false);
+    if (enabled.length === 0) return [];
+    if (enabled.length === 1) return [migrateDisplayRule(enabled[0])];
+    const conditions: GroupCondition = {
+        type: 'AND',
+        conditions: enabled.map(migrateDisplayRule),
+    };
+    return [conditions];
+}

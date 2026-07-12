@@ -1,11 +1,44 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
-import { TRAIL_COLORS } from './types';
-import type { PersonSensors, TrailConfig } from './types';
+import { TRAIL_COLORS, migrateDisplayRules } from './types';
+import type { PersonSensors, TrailConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition, ConditionComparator } from './types';
+import { BUILT_IN_SENSORS } from './types';
 
 const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
 const VALID_ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+
+const WHEN_OPTIONS = ['night', 'morning', 'afternoon', 'evening', 'weekday', 'weekend'];
+
+const NUMERIC_COMPARATORS: { value: ConditionComparator; label: string }[] = [
+    { value: 'lt', label: '<' },
+    { value: 'lte', label: '≤' },
+    { value: 'gt', label: '>' },
+    { value: 'gte', label: '≥' },
+    { value: 'eq', label: '=' },
+    { value: 'ne', label: '≠' },
+];
+
+const TEXT_COMPARATORS: { value: ConditionComparator; label: string }[] = [
+    { value: 'eq', label: '=' },
+    { value: 'ne', label: '≠' },
+    { value: 'oneOf', label: 'one of' },
+    { value: 'notOneOf', label: 'not one of' },
+];
+
+function isSensorCondition(c: DisplayCondition): c is SensorCondition {
+    return 'sensor' in c && !('type' in c);
+}
+
+function isGroupCondition(c: DisplayCondition): c is GroupCondition {
+    return 'type' in c && 'conditions' in c;
+}
+
+function isNotCondition(c: DisplayCondition): c is NotCondition {
+    return 'type' in c && 'condition' in c;
+}
+
+type ConditionContext = 'default' | `person:${number}`;
 
 export class LensMapCardEditor extends LitElement {
     @property({ attribute: false }) public hass: any;
@@ -28,13 +61,19 @@ export class LensMapCardEditor extends LitElement {
         return Array.from(sensorNames).sort();
     }
 
+    get allZoneEntities(): string[] {
+        if (!this.hass) return [];
+        return Object.keys(this.hass.states)
+            .filter(eid => eid.startsWith('zone.'))
+            .sort();
+    }
+
     setConfig(config: LensMapCardConfig) {
         const safeConfig = config || { persons: [] };
         this._config = {
             ...safeConfig,
-            display_rules: safeConfig.display_rules || [
-                { id: 'default', priority: 1, sensor: 'distance', operator: '<', value: '1000', enabled: true }
-            ],
+            displayConditions: safeConfig.displayConditions ||
+                (safeConfig.display_rules ? migrateDisplayRules(safeConfig.display_rules) : [{ sensor: 'distance', comparator: 'lt', value: '1000' }]),
             map: safeConfig.map || { type: 'color', opacity: 1 },
             zoom: safeConfig.zoom || { level: 10, auto_level: false },
             center: safeConfig.center || { type: 'user' },
@@ -42,7 +81,427 @@ export class LensMapCardEditor extends LitElement {
             show_auto_zoom: safeConfig.show_auto_zoom ?? true,
             show_toggle_buttons: safeConfig.show_toggle_buttons ?? true
         };
+
+        for (const person of this._config.persons || []) {
+            if (!person.displayConditions && person.displayRules) {
+                person.displayConditions = migrateDisplayRules(person.displayRules);
+            }
+        }
+
         this.requestUpdate();
+    }
+
+    private _getConditions(context: ConditionContext): DisplayCondition[] {
+        if (context === 'default') {
+            return this._config.displayConditions || [];
+        }
+        const idx = parseInt(context.split(':')[1]);
+        return this._config.persons?.[idx]?.displayConditions || [];
+    }
+
+    private _setConditions(context: ConditionContext, conditions: DisplayCondition[]) {
+        if (context === 'default') {
+            this._config = { ...this._config, displayConditions: conditions };
+        } else {
+            const idx = parseInt(context.split(':')[1]);
+            const persons = [...(this._config.persons || [])];
+            persons[idx] = { ...persons[idx], displayConditions: conditions };
+            this._config = { ...this._config, persons };
+        }
+    }
+
+    private _getConditionAtPath(path: string): { parent: DisplayCondition[]; index: number; condition: DisplayCondition } | null {
+        const parts = path.split(':');
+        const context = parts[0] as ConditionContext;
+        const indices = parts.slice(1).map(Number);
+
+        let current: DisplayCondition[] = this._getConditions(context);
+        for (let i = 0; i < indices.length - 1; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                if (i === indices.length - 2) {
+                    return { parent: current, index: indices[i], condition: c };
+                }
+                current = [c.condition];
+            } else {
+                return null;
+            }
+        }
+        return { parent: current, index: indices[indices.length - 1], condition: current[indices[indices.length - 1]] };
+    }
+
+    private _updateConditionAtPath(path: string, updater: (c: DisplayCondition) => void) {
+        const parts = path.split(':');
+        const context = parts[0] as ConditionContext;
+        const indices = parts.slice(1).map(Number);
+
+        const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
+        let current = conditions;
+        for (let i = 0; i < indices.length - 1; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        updater(current[indices[indices.length - 1]]);
+        this._setConditions(context, conditions);
+        this._emitConfigChanged();
+    }
+
+    private _addConditionToPath(parentPath: string, newCondition: DisplayCondition) {
+        const parts = parentPath.split(':');
+        const context = parts[0] as ConditionContext;
+
+        const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
+        let current: DisplayCondition[] = conditions;
+        for (let i = 1; i < parts.length; i++) {
+            const c = current[parseInt(parts[i])];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        current.push(newCondition);
+        this._setConditions(context, conditions);
+        this._emitConfigChanged();
+    }
+
+    private _removeConditionAtPath(path: string) {
+        const parts = path.split(':');
+        const context = parts[0] as ConditionContext;
+        const indices = parts.slice(1).map(Number);
+
+        const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
+        let current = conditions;
+        for (let i = 0; i < indices.length - 1; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        current.splice(indices[indices.length - 1], 1);
+        this._setConditions(context, conditions);
+        this._emitConfigChanged();
+    }
+
+    private _getConditionSummary(condition: DisplayCondition): string {
+        if (isSensorCondition(condition)) {
+            const op = TEXT_COMPARATORS.find(c => c.value === condition.comparator)?.label || condition.comparator;
+            const val = Array.isArray(condition.value) ? condition.value.join(', ') : String(condition.value ?? '');
+            return `${condition.sensor} ${op} ${val}`;
+        }
+        if (isGroupCondition(condition)) {
+            const count = condition.conditions.length;
+            return `${condition.type} (${count} condition${count !== 1 ? 's' : ''})`;
+        }
+        if (isNotCondition(condition)) {
+            return `NOT ${this._getConditionSummary(condition.condition)}`;
+        }
+        return 'Unknown';
+    }
+
+    private _getSensorOptions(context: ConditionContext): { group: string; value: string; label: string }[] {
+        const options: { group: string; value: string; label: string }[] = [
+            { group: 'Built-in', value: 'distance', label: 'Distance (m)' },
+            { group: 'Built-in', value: 'state', label: 'Person state' },
+            { group: 'Selector', value: 'who', label: 'Who (person)' },
+            { group: 'Selector', value: 'where', label: 'Where (zone)' },
+            { group: 'Selector', value: 'when', label: 'When (time)' },
+            { group: 'Selector', value: 'user', label: 'User (logged in)' },
+            { group: 'Selector', value: 'random', label: 'Random (%)' },
+        ];
+
+        if (context !== 'default') {
+            const personIdx = parseInt(context.split(':')[1]);
+            const person = this._config.persons?.[personIdx];
+            if (person?.namedSensors) {
+                for (const name of Object.keys(person.namedSensors).sort()) {
+                    options.push({ group: 'Named sensor', value: name, label: name });
+                }
+            }
+        }
+
+        return options;
+    }
+
+    private _getComparatorOptions(sensor: string): { value: ConditionComparator; label: string }[] {
+        if (sensor === 'distance' || sensor === 'random') return NUMERIC_COMPARATORS;
+        if (sensor === 'state') return [...NUMERIC_COMPARATORS, ...TEXT_COMPARATORS];
+        return TEXT_COMPARATORS;
+    }
+
+    private _getWhoOptions(): string[] {
+        if (!this.hass) return [];
+        return Object.keys(this.hass.states)
+            .filter(eid => eid.startsWith('person.'))
+            .sort();
+    }
+
+    private _getWhereOptions(): string[] {
+        if (!this.hass) return [];
+        const zones = Object.keys(this.hass.states)
+            .filter(eid => eid.startsWith('zone.'))
+            .sort();
+        return zones;
+    }
+
+    private _renderConditionValueInput(condition: SensorCondition, path: string) {
+        const { sensor } = condition;
+
+        if (sensor === 'when') {
+            const selectedValues = Array.isArray(condition.value)
+                ? condition.value
+                : typeof condition.value === 'string'
+                    ? condition.value.split(',').map(v => v.trim())
+                    : [];
+            return html`
+                <div class="multi-select">
+                    ${WHEN_OPTIONS.map(opt => html`
+                        <label class="chip ${selectedValues.includes(opt) ? 'selected' : ''}">
+                            <input type="checkbox"
+                                ?checked=${selectedValues.includes(opt)}
+                                @change=${(e: Event) => {
+                                    const checked = (e.target as HTMLInputElement).checked;
+                                    const newVal = checked
+                                        ? [...selectedValues, opt]
+                                        : selectedValues.filter(v => v !== opt);
+                                    this._updateConditionAtPath(path, (c) => {
+                                        (c as SensorCondition).value = newVal.length === 1 ? newVal[0] : newVal;
+                                    });
+                                }} />
+                            ${opt}
+                        </label>
+                    `)}
+                </div>`;
+        }
+
+        if (sensor === 'who') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select person...</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'where') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select zone...</option>
+                    ${this._getWhereOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'user') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select...</option>
+                    <option value="user" ?selected=${condition.value === 'user'}>Current user</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'random') {
+            return html`
+                <input type="number" min="0" max="100" step="1"
+                    .value=${String(condition.value ?? '')}
+                    @input=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                    })}
+                    placeholder="0-100" style="width: 80px;" />`;
+        }
+
+        if (['oneOf', 'notOneOf'].includes(condition.comparator)) {
+            const values = Array.isArray(condition.value)
+                ? condition.value
+                : typeof condition.value === 'string'
+                    ? condition.value.split(',').map(v => v.trim()).filter(v => v)
+                    : [String(condition.value ?? '')];
+            return html`
+                <div class="value-chips">
+                    ${values.map((v, i) => html`
+                        <span class="chip selected">${v}
+                            <button class="chip-remove" @click=${() => {
+                                const newVals = values.filter((_, idx) => idx !== i);
+                                this._updateConditionAtPath(path, (c) => {
+                                    (c as SensorCondition).value = newVals;
+                                });
+                            }}>&times;</button>
+                        </span>
+                    `)}
+                    <input type="text" placeholder="Add value..." style="width: 100px;"
+                        @keydown=${(e: KeyboardEvent) => {
+                            if (e.key === 'Enter') {
+                                const input = e.target as HTMLInputElement;
+                                const val = input.value.trim();
+                                if (val) {
+                                    this._updateConditionAtPath(path, (c) => {
+                                        const existing = Array.isArray((c as SensorCondition).value)
+                                            ? (c as SensorCondition).value as string[]
+                                            : [String((c as SensorCondition).value ?? '')];
+                                        (c as SensorCondition).value = [...existing, val];
+                                    });
+                                    input.value = '';
+                                }
+                            }
+                        }} />
+                </div>`;
+        }
+
+        return html`
+            <input type="text" .value=${String(condition.value ?? '')}
+                @input=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                    (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                })}
+                placeholder="value" style="width: 100px;" />`;
+    }
+
+    private _renderSensorCondition(condition: SensorCondition, path: string, context: ConditionContext) {
+        const sensorOptions = this._getSensorOptions(context);
+        const groups = [...new Set(sensorOptions.map(o => o.group))];
+        const comparatorOptions = this._getComparatorOptions(condition.sensor);
+
+        return html`
+            <details class="condition-box condition-sensor" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-sensor">Value</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="condition-row">
+                        <label>Sensor:</label>
+                        <select .value=${condition.sensor}
+                            @change=${(e: Event) => {
+                                const newSensor = (e.target as HTMLSelectElement).value;
+                                this._updateConditionAtPath(path, (c) => {
+                                    const sc = c as SensorCondition;
+                                    sc.sensor = newSensor;
+                                    const newComparators = this._getComparatorOptions(newSensor);
+                                    if (!newComparators.find(o => o.value === sc.comparator)) {
+                                        sc.comparator = newComparators[0].value;
+                                    }
+                                });
+                            }}>
+                            ${groups.map(g => html`
+                                <optgroup label="${g}">
+                                    ${sensorOptions.filter(o => o.group === g).map(o => html`
+                                        <option value="${o.value}" ?selected=${condition.sensor === o.value}>${o.label}</option>
+                                    `)}
+                                </optgroup>
+                            `)}
+                        </select>
+                    </div>
+                    <div class="condition-row">
+                        <label>Comparator:</label>
+                        <select .value=${condition.comparator}
+                            @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                                (c as SensorCondition).comparator = (e.target as HTMLSelectElement).value as ConditionComparator;
+                            })}>
+                            ${comparatorOptions.map(o => html`
+                                <option value="${o.value}" ?selected=${condition.comparator === o.value}>${o.label}</option>
+                            `)}
+                        </select>
+                    </div>
+                    <div class="condition-row">
+                        <label>Value:</label>
+                        ${this._renderConditionValueInput(condition, path)}
+                    </div>
+                </div>
+            </details>`;
+    }
+
+    private _renderGroupCondition(condition: GroupCondition, path: string, context: ConditionContext, isNested: boolean = false) {
+        return html`
+            <details class="condition-box condition-group ${isNested ? 'nested' : ''}" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-group">${condition.type}</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="condition-row">
+                        <label>Logic:</label>
+                        <select .value=${condition.type}
+                            @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                                (c as GroupCondition).type = (e.target as HTMLSelectElement).value as 'AND' | 'OR';
+                            })}>
+                            <option value="AND" ?selected=${condition.type === 'AND'}>AND (all must match)</option>
+                            <option value="OR" ?selected=${condition.type === 'OR'}>OR (any can match)</option>
+                        </select>
+                    </div>
+                    <div class="nested-conditions">
+                        ${condition.conditions.map((child, i) => this._renderCondition(child, `${path}:${i}`, context, true))}
+                    </div>
+                    <div class="add-condition-buttons">
+                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { sensor: 'distance', comparator: 'lt', value: '1000' })}>+ Value</button>
+                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
+                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } })}>+ NOT</button>
+                    </div>
+                </div>
+            </details>`;
+    }
+
+    private _renderNotCondition(condition: NotCondition, path: string, context: ConditionContext, isNested: boolean = false) {
+        return html`
+            <details class="condition-box condition-not ${isNested ? 'nested' : ''}" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-not">NOT</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="nested-conditions">
+                        ${this._renderCondition(condition.condition, `${path}:0`, context, true)}
+                    </div>
+                </div>
+            </details>`;
+    }
+
+    private _renderCondition(condition: DisplayCondition, path: string, context: ConditionContext, isNested: boolean = false) {
+        if (isSensorCondition(condition)) {
+            return this._renderSensorCondition(condition, path, context);
+        }
+        if (isGroupCondition(condition)) {
+            return this._renderGroupCondition(condition, path, context, isNested);
+        }
+        if (isNotCondition(condition)) {
+            return this._renderNotCondition(condition, path, context, isNested);
+        }
+        return html``;
     }
 
     private _addPerson(e: Event) {
@@ -50,10 +509,8 @@ export class LensMapCardEditor extends LitElement {
         const entityId = select.value;
         if (!entityId) return;
 
-        const filteredRules = this._config.display_rules?.filter(r => r.id !== 'default');
         const newPerson: PersonConfig = {
             entity_id: entityId,
-            ...(filteredRules?.length ? { displayRules: filteredRules } : {})
         };
 
         this._config = {
@@ -139,84 +596,6 @@ export class LensMapCardEditor extends LitElement {
             delete person.namedSensors[name];
         }
         this._config = { ...this._config, persons };
-        this._emitConfigChanged();
-    }
-
-    private _addDisplayRule(personIdx: number) {
-        const persons = [...(this._config.persons || [])];
-        const person = persons[personIdx];
-        if (!person.displayRules) {
-            person.displayRules = [];
-        }
-        const newRule: DisplayRule = {
-            id: `rule_${Date.now()}`,
-            priority: person.displayRules.length + 1,
-            sensor: 'distance',
-            operator: '<',
-            value: '1000',
-            enabled: true
-        };
-        person.displayRules.push(newRule);
-        this._config = { ...this._config, persons };
-        this._emitConfigChanged();
-    }
-
-    private _updateDisplayRuleKey(personIdx: number, ruleIdx: number, key: keyof DisplayRule, value: any) {
-        const persons = [...(this._config.persons || [])];
-        const person = persons[personIdx];
-        if (person.displayRules?.[ruleIdx]) {
-            (person.displayRules[ruleIdx] as any)[key] = value;
-            this._config = { ...this._config, persons };
-            this._emitConfigChanged();
-        }
-    }
-
-    private _removeDisplayRule(personIdx: number, ruleIdx: number) {
-        const persons = [...(this._config.persons || [])];
-        const person = persons[personIdx];
-        if (person.displayRules) {
-            person.displayRules.splice(ruleIdx, 1);
-        }
-        this._config = { ...this._config, persons };
-        this._emitConfigChanged();
-    }
-
-    private _defaultRuleSensorChanged(e: Event) {
-        const value = (e.target as HTMLSelectElement).value;
-        const display_rules = [...(this._config.display_rules || [])];
-        const defaultRule = display_rules.find(r => r.id === 'default');
-        if (defaultRule) {
-            defaultRule.sensor = value;
-        } else {
-            display_rules.push({ id: 'default', priority: 1, sensor: value, operator: '<', value: '1000', enabled: true });
-        }
-        this._config = { ...this._config, display_rules };
-        this._emitConfigChanged();
-    }
-
-    private _defaultRuleValueChanged(e: Event) {
-        const value = (e.target as HTMLInputElement).value;
-        const display_rules = [...(this._config.display_rules || [])];
-        const defaultRule = display_rules.find(r => r.id === 'default');
-        if (defaultRule) {
-            defaultRule.value = value;
-        } else {
-            display_rules.push({ id: 'default', priority: 1, sensor: 'distance', operator: '<', value, enabled: true });
-        }
-        this._config = { ...this._config, display_rules };
-        this._emitConfigChanged();
-    }
-
-    private _defaultRuleOperatorChanged(e: Event) {
-        const value = (e.target as HTMLSelectElement).value as DisplayRule['operator'];
-        const display_rules = [...(this._config.display_rules || [])];
-        const defaultRule = display_rules.find(r => r.id === 'default');
-        if (defaultRule) {
-            defaultRule.operator = value;
-        } else {
-            display_rules.push({ id: 'default', priority: 1, sensor: 'distance', operator: value, value: '1000', enabled: true });
-        }
-        this._config = { ...this._config, display_rules };
         this._emitConfigChanged();
     }
 
@@ -430,7 +809,7 @@ export class LensMapCardEditor extends LitElement {
                                         <div>
                                             <strong>Sensors</strong>
                                             <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
-                                                Add sensors with custom names to use in display rules
+                                                Add sensors with custom names to use in display conditions
                                             </p>
                                             <div class="sensor-list">
                                                 ${person.namedSensors && Object.keys(person.namedSensors).length > 0
@@ -440,7 +819,9 @@ export class LensMapCardEditor extends LitElement {
                                                                 @blur=${(e: Event) => this._updateNamedSensorName(idx, name, (e.target as HTMLInputElement).value)} />
                                                             <input type="text" value="${Array.isArray(sensor.entity_id) ? sensor.entity_id.join(', ') : sensor.entity_id}" placeholder="entity_id" style="flex: 1;"
                                                                 @blur=${(e: Event) => this._updateNamedSensorEntity(idx, name, (e.target as HTMLInputElement).value)} />
-                                                            <button class="icon-button" @click=${() => this._removeNamedSensor(idx, name)} title="Remove">🗑️</button>
+                                                            <input type="text" value="${sensor.attribute || ''}" placeholder="attribute (optional)" style="width: 120px;"
+                                                                @blur=${(e: Event) => this._updateNamedSensorAttribute(idx, name, (e.target as HTMLInputElement).value)} />
+                                                            <button class="icon-button" @click=${() => this._removeNamedSensor(idx, name)} title="Remove">&times;</button>
                                                         </div>
                                                     `) : ''}
                                             </div>
@@ -451,35 +832,43 @@ export class LensMapCardEditor extends LitElement {
                                             </div>
                                         </div>
 
-                                        <!-- Display Rules -->
+                                        <!-- Display Conditions -->
                                         <div style="margin-top: 1em;">
-                                            <strong>Display Rules</strong>
+                                            <strong>Display Conditions</strong>
                                             <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
-                                                Rules for when this person is shown on the map
+                                                Conditions for when this person is shown on the map. All top-level conditions must match (implicit AND).
                                             </p>
-                                            <div>
-                                                ${(person.displayRules || []).map((rule, ridx) => html`
-                                                    <div style="display: flex; gap: 0.5em; align-items: center; margin-bottom: 0.5em;">
-                                                        <select .value=${rule.sensor} @change=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'sensor', (e.target as HTMLSelectElement).value)}>
-                                                            <option value="distance" ?selected="${rule.sensor === 'distance'}">distance</option>
-                                                            <option value="state" ?selected="${rule.sensor === 'state'}">state</option>
-                                                            ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}" ?selected="${rule.sensor === sn}">${sn}</option>`)}
-                                                        </select>
-                                                        <select .value=${rule.operator} @change=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'operator', (e.target as HTMLSelectElement).value)}>
-                                                            <option value="<" ?selected="${rule.operator === '<'}"><</option>
-                                                            <option value="<=" ?selected="${rule.operator === '<='}">≤</option>
-                                                            <option value=">" ?selected="${rule.operator === '>'}">></option>
-                                                            <option value=">=" ?selected="${rule.operator === '>='}">≥</option>
-                                                            <option value="=" ?selected="${rule.operator === '='}">=</option>
-                                                            <option value="!=" ?selected="${rule.operator === '!='}">≠</option>
-                                                        </select>
-                                                        <input type="text" .value=${rule.value} placeholder="value" style="width: 80px;"
-                                                            @input=${(e: Event) => this._updateDisplayRuleKey(idx, ridx, 'value', (e.target as HTMLInputElement).value)} />
-                                                        <button class="icon-button" @click=${() => this._removeDisplayRule(idx, ridx)} title="Remove">🗑️</button>
-                                                    </div>
-                                                `)}
+                                            <div class="conditions-list">
+                                                ${(person.displayConditions || []).map((cond, cidx) =>
+                                                    this._renderCondition(cond, `person:${idx}:${cidx}`, `person:${idx}` as ConditionContext)
+                                                )}
                                             </div>
-                                            <button @click=${() => this._addDisplayRule(idx)}>+ Add Rule</button>
+                                            <div class="add-condition-buttons">
+                                                <button class="btn-small" @click=${() => {
+                                                    const persons = [...(this._config.persons || [])];
+                                                    const person = persons[idx];
+                                                    if (!person.displayConditions) person.displayConditions = [];
+                                                    person.displayConditions.push({ sensor: 'distance', comparator: 'lt', value: '1000' });
+                                                    this._config = { ...this._config, persons };
+                                                    this._emitConfigChanged();
+                                                }}>+ Value</button>
+                                                <button class="btn-small" @click=${() => {
+                                                    const persons = [...(this._config.persons || [])];
+                                                    const person = persons[idx];
+                                                    if (!person.displayConditions) person.displayConditions = [];
+                                                    person.displayConditions.push({ type: 'AND', conditions: [] });
+                                                    this._config = { ...this._config, persons };
+                                                    this._emitConfigChanged();
+                                                }}>+ Group</button>
+                                                <button class="btn-small" @click=${() => {
+                                                    const persons = [...(this._config.persons || [])];
+                                                    const person = persons[idx];
+                                                    if (!person.displayConditions) person.displayConditions = [];
+                                                    person.displayConditions.push({ type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } });
+                                                    this._config = { ...this._config, persons };
+                                                    this._emitConfigChanged();
+                                                }}>+ NOT</button>
+                                            </div>
                                         </div>
                                 `)}
                             </div>
@@ -487,33 +876,41 @@ export class LensMapCardEditor extends LitElement {
                     </div>
                 </details>
 
-                <!-- DISPLAY RULES (Default) -->
+                <!-- DISPLAY CONDITIONS (Default) -->
                 <details>
-                    <summary><h3 style="display: inline;">Display Rules (Default)</h3></summary>
+                    <summary><h3 style="display: inline;">Display Conditions (Default)</h3></summary>
                     <div style="margin-left: 1em;">
                         <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5em;">
-                            Default rule applied to all persons unless they have their own rules.
+                            Default conditions applied to all persons unless they have their own conditions.
                         </p>
-                        <div style="display: flex; gap: 0.5em; align-items: center;">
-                            <span>Show when</span>
-                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.sensor || 'distance'} @change=${this._defaultRuleSensorChanged}>
-                                <option value="distance">distance</option>
-                                <option value="state">state</option>
-                                ${this.uniqueNamedSensors.map(sn => html`<option value="${sn}">${sn}</option>`)}
-                            </select>
-                            <select .value=${this._config.display_rules?.find(r => r.id === 'default')?.operator || '<'} @change=${this._defaultRuleOperatorChanged}>
-                                <option value="<" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<'}"><</option>
-                                <option value="<=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '<='}">≤</option>
-                                <option value=">" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>'}">></option>
-                                <option value=">=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '>='}">≥</option>
-                                <option value="=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '='}">=</option>
-                                <option value="!=" ?selected="${this._config.display_rules?.find(r => r.id === 'default')?.operator === '!='}">≠</option>
-                            </select>
-                            <input type="text" .value=${this._config.display_rules?.find(r => r.id === 'default')?.value || '1000'} @input=${this._defaultRuleValueChanged} placeholder="value" style="width: 80px;" />
-                            <span>m</span>
+                        <div class="conditions-list">
+                            ${(this._config.displayConditions || []).map((cond, cidx) =>
+                                this._renderCondition(cond, `default:${cidx}`, 'default')
+                            )}
+                        </div>
+                        <div class="add-condition-buttons">
+                            <button class="btn-small" @click=${() => {
+                                const conds = [...(this._config.displayConditions || [])];
+                                conds.push({ sensor: 'distance', comparator: 'lt', value: '1000' });
+                                this._config = { ...this._config, displayConditions: conds };
+                                this._emitConfigChanged();
+                            }}>+ Value</button>
+                            <button class="btn-small" @click=${() => {
+                                const conds = [...(this._config.displayConditions || [])];
+                                conds.push({ type: 'AND', conditions: [] });
+                                this._config = { ...this._config, displayConditions: conds };
+                                this._emitConfigChanged();
+                            }}>+ Group</button>
+                            <button class="btn-small" @click=${() => {
+                                const conds = [...(this._config.displayConditions || [])];
+                                conds.push({ type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } });
+                                this._config = { ...this._config, displayConditions: conds };
+                                this._emitConfigChanged();
+                            }}>+ NOT</button>
                         </div>
                     </div>
-                    <div style="margin-top: 0.5em;">
+
+                    <div style="margin-top: 1em;">
                         <strong>Trail</strong>
                         <div style="margin-left: 1em; margin-top: 0.3em;">
                             <div>
@@ -747,6 +1144,7 @@ export class LensMapCardEditor extends LitElement {
             background: none;
             border: none;
             cursor: pointer;
+            font-size: 1.2em;
         }
         button {
             padding: 6px 12px;
@@ -755,6 +1153,133 @@ export class LensMapCardEditor extends LitElement {
             border: none;
             border-radius: 4px;
             cursor: pointer;
+        }
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 0.85em;
+            margin-right: 4px;
+        }
+        .conditions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .condition-box {
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            padding: 0;
+            margin-bottom: 4px;
+        }
+        .condition-box.nested {
+            margin-left: 16px;
+        }
+        .condition-box.condition-sensor {
+            border-left: 3px solid #2196f3;
+        }
+        .condition-box.condition-group {
+            border-left: 3px solid #ff9800;
+        }
+        .condition-box.condition-not {
+            border-left: 3px solid #f44336;
+        }
+        .condition-summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            cursor: pointer;
+            font-weight: normal;
+        }
+        .condition-badge {
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0;
+        }
+        .badge-sensor {
+            background: #2196f3;
+        }
+        .badge-group {
+            background: #ff9800;
+        }
+        .badge-not {
+            background: #f44336;
+        }
+        .condition-text {
+            flex: 1;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .remove-btn {
+            background: none;
+            color: #999;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2em;
+            padding: 0 4px;
+        }
+        .remove-btn:hover {
+            color: #f44336;
+        }
+        .condition-body {
+            padding: 8px;
+            border-top: 1px solid var(--divider-color);
+        }
+        .condition-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .condition-row label {
+            min-width: 80px;
+            font-size: 0.85em;
+            color: #666;
+        }
+        .nested-conditions {
+            margin-top: 8px;
+        }
+        .add-condition-buttons {
+            margin-top: 8px;
+        }
+        .multi-select {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px 8px;
+            border: 1px solid var(--divider-color);
+            border-radius: 12px;
+            font-size: 0.85em;
+            cursor: pointer;
+        }
+        .chip.selected {
+            background: var(--primary-color);
+            color: var(--text-primary-color);
+            border-color: var(--primary-color);
+        }
+        .chip input[type="checkbox"] {
+            display: none;
+        }
+        .chip-remove {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0 2px;
+            font-size: 1em;
+            line-height: 1;
+        }
+        .value-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
         }
     `;
 }
