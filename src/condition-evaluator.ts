@@ -1,19 +1,19 @@
 import type { DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, PersonConfig, PersonSensors } from './types';
 
 function isSensorCondition(c: DisplayCondition): c is SensorCondition {
-    return 'sensor' in c && !('type' in c);
+    return c != null && 'sensor' in c && !('type' in c);
 }
 
 function isGroupCondition(c: DisplayCondition): c is GroupCondition {
-    return 'type' in c && 'conditions' in c;
+    return c != null && 'type' in c && 'conditions' in c;
 }
 
 function isNotCondition(c: DisplayCondition): c is NotCondition {
-    return 'type' in c && 'condition' in c;
+    return c != null && 'type' in c && 'condition' in c;
 }
 
 function isDefaultCondition(c: DisplayCondition): c is DefaultCondition {
-    return 'type' in c && c.type === 'DEFAULT';
+    return c != null && 'type' in c && c.type === 'DEFAULT';
 }
 
 function getEntityState(hass: any, entityId: string): string {
@@ -87,11 +87,14 @@ function matchesWho(hass: any, person: PersonConfig, expected: unknown, comparat
 function userMatchesValue(hass: any, person: PersonConfig, value: string): boolean {
     const userId = hass?.user?.id;
     const userName = hass?.user?.name;
-    const personUserId = hass?.states[person.entity_id]?.attributes?.user_id;
-    if (value === 'user') return personUserId === userId;
-    if (value === userId) return true;
-    if (value === userName) return true;
-    return person.entity_id === value;
+    if (value === 'user') {
+        const personUserId = hass?.states[person.entity_id]?.attributes?.user_id;
+        return personUserId === userId;
+    }
+    if (value === userId || value === userName) return true;
+    const targetUserId = hass?.states[value]?.attributes?.user_id;
+    if (targetUserId && targetUserId === userId) return true;
+    return false;
 }
 
 function matchesUser(hass: any, person: PersonConfig, expected: unknown, comparator: string): boolean {

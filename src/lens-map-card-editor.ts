@@ -121,10 +121,16 @@ export class LensMapCardEditor extends LitElement {
         return { parent: current, index: indices[indices.length - 1], condition: current[indices[indices.length - 1]] };
     }
 
-    private _updateConditionAtPath(path: string, updater: (c: DisplayCondition) => void) {
+    private _parsePath(path: string): { context: ConditionContext; indices: number[] } {
         const parts = path.split(':');
-        const context = parts[0] as ConditionContext;
-        const indices = parts.slice(1).map(Number);
+        const isPerson = parts[0] === 'person';
+        const context = isPerson ? `${parts[0]}:${parts[1]}` as ConditionContext : 'default' as ConditionContext;
+        const indices = (isPerson ? parts.slice(2) : parts.slice(1)).map(Number);
+        return { context, indices };
+    }
+
+    private _updateConditionAtPath(path: string, updater: (c: DisplayCondition) => void) {
+        const { context, indices } = this._parsePath(path);
 
         const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
         let current = conditions;
@@ -144,13 +150,12 @@ export class LensMapCardEditor extends LitElement {
     }
 
     private _addConditionToPath(parentPath: string, newCondition: DisplayCondition) {
-        const parts = parentPath.split(':');
-        const context = parts[0] as ConditionContext;
+        const { context, indices } = this._parsePath(parentPath);
 
         const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
         let current: DisplayCondition[] = conditions;
-        for (let i = 1; i < parts.length; i++) {
-            const c = current[parseInt(parts[i])];
+        for (let i = 0; i < indices.length; i++) {
+            const c = current[indices[i]];
             if (isGroupCondition(c)) {
                 current = c.conditions;
             } else if (isNotCondition(c)) {
@@ -165,9 +170,7 @@ export class LensMapCardEditor extends LitElement {
     }
 
     private _removeConditionAtPath(path: string) {
-        const parts = path.split(':');
-        const context = parts[0] as ConditionContext;
-        const indices = parts.slice(1).map(Number);
+        const { context, indices } = this._parsePath(path);
 
         const conditions = JSON.parse(JSON.stringify(this._getConditions(context))) as DisplayCondition[];
         let current = conditions;

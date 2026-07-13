@@ -318,8 +318,8 @@ class LensMapCard extends LitElement {
 
     private _initLeafletMap(mapContainer: HTMLElement) {
         const mapCenter = this._getMapCenter();
-        const centerLat = mapCenter?.latitude || 0;
-        const centerLon = mapCenter?.longitude || 0;
+        const centerLat = mapCenter?.latitude ?? 59.9;
+        const centerLon = mapCenter?.longitude ?? 10.7;
 
         const zoomLevel = this.zoom?.level ?? 13;
 
@@ -638,20 +638,20 @@ class LensMapCard extends LitElement {
 
     private _setupResizeObserver(container: HTMLElement) {
         if (this._resizeObserver) this._resizeObserver.disconnect();
+        let pending = false;
         this._resizeObserver = new ResizeObserver(() => {
-            try {
-                if (this._leafletMap) {
-                    requestAnimationFrame(() => {
-                        try {
-                            this._leafletMap.invalidateSize({ pan: false });
-                        } catch (e) {
-                            console.error('[LensMap] invalidateSize error:', e);
-                        }
-                    });
+            if (pending) return;
+            pending = true;
+            requestAnimationFrame(() => {
+                pending = false;
+                try {
+                    if (this._leafletMap) {
+                        this._leafletMap.invalidateSize({ pan: false });
+                    }
+                } catch (e) {
+                    console.error('[LensMap] invalidateSize error:', e);
                 }
-            } catch (e) {
-                console.error('[LensMap] ResizeObserver error:', e);
-            }
+            });
         });
         this._resizeObserver.observe(container);
     }
