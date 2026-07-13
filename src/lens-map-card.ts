@@ -959,8 +959,14 @@ class LensMapCard extends LitElement {
     }
 
     static styles = css`
-        ha-card {
+        :host {
             display: block;
+            height: 100%;
+        }
+        ha-card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
             padding: 16px;
         }
         .card-header {
@@ -970,9 +976,11 @@ class LensMapCard extends LitElement {
         }
         .map-wrapper {
             position: relative;
+            flex: 1;
+            min-height: 0;
         }
         .map-container {
-            height: 400px;
+            height: 100%;
             width: 100%;
             border-radius: 8px;
             overflow: hidden;
