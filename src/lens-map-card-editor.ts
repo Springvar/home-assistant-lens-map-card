@@ -2,7 +2,8 @@ import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
 import { TRAIL_COLORS, migrateDisplayRules } from './types';
-import type { PersonSensors, TrailConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition, ConditionComparator } from './types';
+import type { PersonSensors, TrailConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, ConditionComparator } from './types';
+import { isSensorCondition, isGroupCondition, isNotCondition, isDefaultCondition } from './condition-evaluator';
 import { BUILT_IN_SENSORS } from './types';
 
 const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
@@ -25,18 +26,6 @@ const TEXT_COMPARATORS: { value: ConditionComparator; label: string }[] = [
     { value: 'oneOf', label: 'one of' },
     { value: 'notOneOf', label: 'not one of' },
 ];
-
-function isSensorCondition(c: DisplayCondition): c is SensorCondition {
-    return 'sensor' in c && !('type' in c);
-}
-
-function isGroupCondition(c: DisplayCondition): c is GroupCondition {
-    return 'type' in c && 'conditions' in c;
-}
-
-function isNotCondition(c: DisplayCondition): c is NotCondition {
-    return 'type' in c && 'condition' in c;
-}
 
 type ConditionContext = 'default' | `person:${number}`;
 
@@ -209,6 +198,9 @@ export class LensMapCardEditor extends LitElement {
         }
         if (isNotCondition(condition)) {
             return `NOT ${this._getConditionSummary(condition.condition)}`;
+        }
+        if (isDefaultCondition(condition)) {
+            return 'Default conditions';
         }
         return 'Unknown';
     }
@@ -470,6 +462,7 @@ export class LensMapCardEditor extends LitElement {
                         <button class="btn-small" @click=${() => this._addConditionToPath(path, { sensor: 'distance', comparator: 'lt', value: '1000' })}>+ Value</button>
                         <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
                         <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } })}>+ NOT</button>
+                        ${context !== 'default' ? html`<button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'DEFAULT' } as DefaultCondition)}>+ Default</button>` : ''}
                     </div>
                 </div>
             </details>`;
@@ -491,6 +484,17 @@ export class LensMapCardEditor extends LitElement {
             </details>`;
     }
 
+    private _renderDefaultCondition(condition: DefaultCondition, path: string) {
+        return html`
+            <details class="condition-box condition-default" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-default">DEFAULT</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+            </details>`;
+    }
+
     private _renderCondition(condition: DisplayCondition, path: string, context: ConditionContext, isNested: boolean = false) {
         if (isSensorCondition(condition)) {
             return this._renderSensorCondition(condition, path, context);
@@ -500,6 +504,9 @@ export class LensMapCardEditor extends LitElement {
         }
         if (isNotCondition(condition)) {
             return this._renderNotCondition(condition, path, context, isNested);
+        }
+        if (isDefaultCondition(condition)) {
+            return this._renderDefaultCondition(condition, path);
         }
         return html``;
     }
@@ -868,6 +875,14 @@ export class LensMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, persons };
                                                     this._emitConfigChanged();
                                                 }}>+ NOT</button>
+                                                <button class="btn-small" @click=${() => {
+                                                    const persons = [...(this._config.persons || [])];
+                                                    const person = persons[idx];
+                                                    if (!person.displayConditions) person.displayConditions = [];
+                                                    person.displayConditions.push({ type: 'DEFAULT' });
+                                                    this._config = { ...this._config, persons };
+                                                    this._emitConfigChanged();
+                                                }}>+ Default</button>
                                             </div>
                                         </div>
                                 `)}
@@ -1206,6 +1221,9 @@ export class LensMapCardEditor extends LitElement {
         }
         .badge-not {
             background: #f44336;
+        }
+        .badge-default {
+            background: #9c27b0;
         }
         .condition-text {
             flex: 1;

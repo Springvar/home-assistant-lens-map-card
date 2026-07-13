@@ -310,3 +310,67 @@ describe('extractDistanceThreshold', () => {
         expect(extractDistanceThreshold([])).toBeNull();
     });
 });
+
+describe('DEFAULT condition', () => {
+    it('returns true when no defaultConditions provided', () => {
+        const cond: DisplayCondition = { type: 'DEFAULT' };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(true);
+    });
+
+    it('returns true when defaultConditions is empty', () => {
+        const cond: DisplayCondition = { type: 'DEFAULT' };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond, [])).toBe(true);
+    });
+
+    it('evaluates the default conditions for the person', () => {
+        const cond: DisplayCondition = { type: 'DEFAULT' };
+        const defaults: DisplayCondition[] = [{ sensor: 'state', comparator: 'eq', value: 'home' }];
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond, defaults)).toBe(true);
+        expect(evaluateConditions(makeHass(), makePerson({ entity_id: 'person.jane' }), null, cond, defaults)).toBe(false);
+    });
+
+    it('works inside an OR group', () => {
+        const group: DisplayCondition = {
+            type: 'OR',
+            conditions: [
+                { type: 'DEFAULT' },
+                { sensor: 'who', comparator: 'eq', value: 'person.jane' },
+            ],
+        };
+        const defaults: DisplayCondition[] = [{ sensor: 'state', comparator: 'eq', value: 'home' }];
+
+        // john matches defaults
+        expect(evaluateConditions(makeHass(), makePerson(), null, group, defaults)).toBe(true);
+        // jane doesn't match defaults, but matches who
+        expect(evaluateConditions(makeHass(), makePerson({ entity_id: 'person.jane' }), null, group, defaults)).toBe(true);
+    });
+
+    it('works inside an AND group', () => {
+        const group: DisplayCondition = {
+            type: 'AND',
+            conditions: [
+                { type: 'DEFAULT' },
+                { sensor: 'who', comparator: 'eq', value: 'person.john' },
+            ],
+        };
+        const defaults: DisplayCondition[] = [{ sensor: 'state', comparator: 'eq', value: 'home' }];
+
+        // john matches both
+        expect(evaluateConditions(makeHass(), makePerson(), null, group, defaults)).toBe(true);
+        // jane matches who but not defaults
+        expect(evaluateConditions(makeHass(), makePerson({ entity_id: 'person.jane' }), null, group, defaults)).toBe(false);
+    });
+
+    it('works inside NOT', () => {
+        const not: DisplayCondition = {
+            type: 'NOT',
+            condition: { type: 'DEFAULT' },
+        };
+        const defaults: DisplayCondition[] = [{ sensor: 'state', comparator: 'eq', value: 'home' }];
+
+        // john matches defaults, NOT inverts to false
+        expect(evaluateConditions(makeHass(), makePerson(), null, not, defaults)).toBe(false);
+        // jane doesn't match defaults, NOT inverts to true
+        expect(evaluateConditions(makeHass(), makePerson({ entity_id: 'person.jane' }), null, not, defaults)).toBe(true);
+    });
+});

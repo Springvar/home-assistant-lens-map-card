@@ -874,7 +874,8 @@ class LensMapCard extends LitElement {
             ? person.displayConditions
             : this.displayConditions || [];
         if (conditions.length === 0) return true;
-        return evaluateConditions(this._hass, person, this._getCurrentUserLocation(), conditions);
+        const defaultConditions = person.displayConditions?.length ? (this.displayConditions || []) : undefined;
+        return evaluateConditions(this._hass, person, this._getCurrentUserLocation(), conditions, defaultConditions);
     }
 
     private _togglePerson(entityId: string) {

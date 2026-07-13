@@ -39,7 +39,11 @@ export interface NotCondition {
     condition: DisplayCondition;
 }
 
-export type DisplayCondition = SensorCondition | GroupCondition | NotCondition;
+export interface DefaultCondition {
+    type: 'DEFAULT';
+}
+
+export type DisplayCondition = SensorCondition | GroupCondition | NotCondition | DefaultCondition;
 
 export interface PersonConfig {
     entity_id: string;

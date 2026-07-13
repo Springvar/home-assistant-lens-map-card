@@ -1,4 +1,4 @@
-import type { DisplayCondition, SensorCondition, GroupCondition, NotCondition, PersonConfig, PersonSensors } from './types';
+import type { DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, PersonConfig, PersonSensors } from './types';
 
 function isSensorCondition(c: DisplayCondition): c is SensorCondition {
     return 'sensor' in c && !('type' in c);
@@ -10,6 +10,10 @@ function isGroupCondition(c: DisplayCondition): c is GroupCondition {
 
 function isNotCondition(c: DisplayCondition): c is NotCondition {
     return 'type' in c && 'condition' in c;
+}
+
+function isDefaultCondition(c: DisplayCondition): c is DefaultCondition {
+    return 'type' in c && c.type === 'DEFAULT';
 }
 
 function getEntityState(hass: any, entityId: string): string {
@@ -183,19 +187,24 @@ function evaluateSensorCondition(hass: any, person: PersonConfig, currentUserLoc
     return matchesComparator(sensorValue, comparator, value);
 }
 
-function evaluateCondition(hass: any, person: PersonConfig, currentUserLocation: { latitude: number; longitude: number } | null, condition: DisplayCondition): boolean {
+function evaluateCondition(hass: any, person: PersonConfig, currentUserLocation: { latitude: number; longitude: number } | null, condition: DisplayCondition, defaultConditions?: DisplayCondition[]): boolean {
     if (isGroupCondition(condition)) {
         if (condition.type === 'AND') {
-            return condition.conditions.every(c => evaluateCondition(hass, person, currentUserLocation, c));
+            return condition.conditions.every(c => evaluateCondition(hass, person, currentUserLocation, c, defaultConditions));
         }
         if (condition.type === 'OR') {
-            return condition.conditions.some(c => evaluateCondition(hass, person, currentUserLocation, c));
+            return condition.conditions.some(c => evaluateCondition(hass, person, currentUserLocation, c, defaultConditions));
         }
         return false;
     }
 
     if (isNotCondition(condition)) {
-        return !evaluateCondition(hass, person, currentUserLocation, condition.condition);
+        return !evaluateCondition(hass, person, currentUserLocation, condition.condition, defaultConditions);
+    }
+
+    if (isDefaultCondition(condition)) {
+        if (!defaultConditions || defaultConditions.length === 0) return true;
+        return defaultConditions.every(c => evaluateCondition(hass, person, currentUserLocation, c, defaultConditions));
     }
 
     if (isSensorCondition(condition)) {
@@ -209,13 +218,14 @@ export function evaluateConditions(
     hass: any,
     person: PersonConfig,
     currentUserLocation: { latitude: number; longitude: number } | null,
-    conditions: DisplayCondition | DisplayCondition[]
+    conditions: DisplayCondition | DisplayCondition[],
+    defaultConditions?: DisplayCondition[]
 ): boolean {
     if (Array.isArray(conditions)) {
         if (conditions.length === 0) return true;
-        return conditions.every(c => evaluateCondition(hass, person, currentUserLocation, c));
+        return conditions.every(c => evaluateCondition(hass, person, currentUserLocation, c, defaultConditions));
     }
-    return evaluateCondition(hass, person, currentUserLocation, conditions);
+    return evaluateCondition(hass, person, currentUserLocation, conditions, defaultConditions);
 }
 
 export function extractDistanceThreshold(conditions: DisplayCondition[]): number | null {
@@ -231,4 +241,4 @@ export function extractDistanceThreshold(conditions: DisplayCondition[]): number
     return null;
 }
 
-export { isSensorCondition, isGroupCondition, isNotCondition };
+export { isSensorCondition, isGroupCondition, isNotCondition, isDefaultCondition };
