@@ -124,9 +124,10 @@ function resolveSensorValue(hass: any, person: PersonConfig, currentUserLocation
     }
 
     if (sensorKey === 'distance_from_person') {
-        if (!condition?.target_person) return Infinity;
+        const targetId = condition?.target_person === 'self' ? person.entity_id : condition?.target_person;
+        if (!targetId) return Infinity;
         const fromLocation = getLocation(hass, person.entity_id);
-        const toLocation = getLocation(hass, condition.target_person);
+        const toLocation = getLocation(hass, targetId);
         if (!fromLocation || !toLocation) return Infinity;
         return haversine(fromLocation.latitude, fromLocation.longitude, toLocation.latitude, toLocation.longitude);
     }

@@ -394,6 +394,17 @@ describe('SensorCondition - distance_from_person (display)', () => {
         };
         expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(false);
     });
+
+    it('resolves "self" to the person being evaluated', () => {
+        const cond: SensorCondition = {
+            sensor: 'distance_from_person',
+            comparator: 'lt',
+            value: 1,
+            target_person: 'self',
+        };
+        const loc = { latitude: 52.5, longitude: 13.4 };
+        expect(evaluateConditions(makeHass(), makePerson(), loc, cond)).toBe(true);
+    });
 });
 
 describe('SensorCondition - distance_from_zone (display)', () => {

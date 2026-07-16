@@ -342,12 +342,14 @@ export class LensMapCardEditor extends LitElement {
         }
 
         if (sensor === 'distance_from_person') {
+            const isPerPersonContext = context !== 'default';
             return html`
                 <select .value=${String(condition.target_person ?? '')}
                     @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
                         (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
                     })}>
                     <option value="">Select person...</option>
+                    ${isPerPersonContext ? html`<option value="self" ?selected=${condition.target_person === 'self'}>This person</option>` : ''}
                     ${this._getWhoOptions().map(eid => html`
                         <option value="${eid}" ?selected=${condition.target_person === eid}>
                             ${this.hass.states[eid]?.attributes?.friendly_name || eid}
@@ -634,6 +636,7 @@ export class LensMapCardEditor extends LitElement {
                         (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
                     })}>
                     <option value="">Select person...</option>
+                    <option value="self" ?selected=${condition.target_person === 'self'}>This person</option>
                     ${this._getWhoOptions().map(eid => html`
                         <option value="${eid}" ?selected=${condition.target_person === eid}>
                             ${this.hass.states[eid]?.attributes?.friendly_name || eid}
