@@ -987,8 +987,9 @@ export class LensMapCardEditor extends LitElement {
     }
 
     private _zoomAutoChanged(e: Event) {
-        const checked = (e.target as HTMLInputElement).checked;
-        this._config = { ...this._config, zoom: { ...this._config.zoom, auto_level: checked } };
+        const value = (e.target as HTMLSelectElement).value;
+        const auto_level = value === 'fit' ? true : value === 'zoom_out' ? 'zoom_out' as const : false;
+        this._config = { ...this._config, zoom: { ...this._config.zoom, auto_level } };
         this._emitConfigChanged();
     }
 
@@ -1064,9 +1065,9 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
-    private _trailGpsJumpDistanceChanged(e: Event) {
-        const value = (e.target as HTMLInputElement).value;
-        this._config = { ...this._config, trail: { ...this._config.trail, gps_jump_distance: value ? parseFloat(value) : undefined } };
+    private _trailGpsJumpFilterChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, trail: { ...this._config.trail, gps_jump_filter: checked || undefined } };
         this._emitConfigChanged();
     }
 
@@ -1425,8 +1426,10 @@ export class LensMapCardEditor extends LitElement {
                                 <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
                             </div>
                             <div style="margin-top: 0.5em;">
-                                <label>GPS jump filter (meters, 0 = off):</label>
-                                <input type="number" .value=${this._config.trail?.gps_jump_distance ?? ''} min="0" step="100" @input=${this._trailGpsJumpDistanceChanged} style="width: 100px;" />
+                                <label>
+                                    <input type="checkbox" .checked=${this._config.trail?.gps_jump_filter ?? false} @change=${this._trailGpsJumpFilterChanged} />
+                                    GPS jump filter
+                                </label>
                             </div>
                             <div style="margin-top: 0.5em;">
                                 <label>Newest point opacity:</label>
@@ -1534,14 +1537,16 @@ export class LensMapCardEditor extends LitElement {
                             </select>
                         </div>
                         <div style="margin-top: 0.3em;">
-                            <label>
-                                <input type="checkbox" .checked=${this._config.zoom?.auto_level ?? false} @change=${this._zoomAutoChanged} />
-                                Auto
-                            </label>
+                            <label>Auto zoom:</label>
+                            <select .value=${this._config.zoom?.auto_level === true ? 'fit' : this._config.zoom?.auto_level === 'zoom_out' ? 'zoom_out' : 'off'} @change=${this._zoomAutoChanged}>
+                                <option value="off">Off</option>
+                                <option value="fit">Yes (fit all)</option>
+                                <option value="zoom_out">Zoom out only</option>
+                            </select>
                             <span style="font-size: 0.85em; color: #666; margin-left: 0.5em;">
                                 ${this._config.center?.type === 'visible'
-                                    ? '(automatic zoom and center on visible persons)'
-                                    : '(automatic zoom to include all visible persons)'}
+                                    ? this._config.zoom?.auto_level === 'zoom_out' ? '(zoom out to show all visible persons, never zoom in)' : '(automatic zoom and center on visible persons)'
+                                    : this._config.zoom?.auto_level === 'zoom_out' ? '(zoom out to show all visible persons, never zoom in)' : '(automatic zoom to include all visible persons)'}
                             </span>
                         </div>
                         <div style="margin-top: 0.5em;">

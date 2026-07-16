@@ -68,7 +68,7 @@ export interface MapConfig {
 
 export interface ZoomConfig {
     level?: number;
-    auto_level?: boolean;
+    auto_level?: boolean | 'zoom_out';
 }
 
 export interface CenterConfig {
@@ -84,7 +84,7 @@ export interface TrailConfig {
     max_age?: number;
     conditions?: DisplayCondition[];
     person_conditions?: Record<string, DisplayCondition[]>;
-    gps_jump_distance?: number;
+    gps_jump_filter?: boolean;
     newest_opacity?: number;
     oldest_opacity?: number;
     midpoint?: number;

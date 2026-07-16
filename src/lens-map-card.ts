@@ -100,10 +100,14 @@ class LensMapCard extends LitElement {
     private _fetchingHistory = false;
     private _lastCenterPos: { lat: number; lng: number } | null = null;
     @state() private _hiddenPersons: Set<string> = new Set();
-    @state() private _autoZoomEnabled: boolean = false;
+    @state() private _autoZoomMode: 'off' | 'fit' | 'zoom_out' = 'off';
 
     private get _effectiveAutoZoom(): boolean {
-        return this._autoZoomEnabled;
+        return this._autoZoomMode !== 'off';
+    }
+
+    private get _isZoomOutOnly(): boolean {
+        return this._autoZoomMode === 'zoom_out';
     }
 
     static async getConfigElement(config: LensMapCardConfig) {
@@ -233,7 +237,9 @@ class LensMapCard extends LitElement {
         this.show_title = config.show_title !== false;
         this.show_auto_zoom = config.show_auto_zoom !== false;
         this.show_toggle_buttons = config.show_toggle_buttons !== false;
-        this._autoZoomEnabled = this.zoom?.auto_level === true;
+        this._autoZoomMode = this.zoom?.auto_level === true ? 'fit'
+            : this.zoom?.auto_level === 'zoom_out' ? 'zoom_out'
+            : 'off';
 
         if (this._leafletLoaded) {
             setTimeout(() => {
@@ -370,7 +376,14 @@ class LensMapCard extends LitElement {
         if (layers.length === 0) return;
 
         const group = window.L.featureGroup(layers);
-        this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+        if (this._isZoomOutOnly) {
+            const fitZoom = this._leafletMap.getBoundsZoom(group.getBounds().pad(0.1));
+            if (fitZoom < this._leafletMap.getZoom()) {
+                this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+            }
+        } else {
+            this._leafletMap.fitBounds(group.getBounds().pad(0.1), { animate: false, maxZoom: 18 });
+        }
     }
 
     private _getVisibleLayers(): any[] {
@@ -533,7 +546,6 @@ class LensMapCard extends LitElement {
         const now = Date.now();
         const userLoc = this._getCurrentUserLocation();
         const trailConditions = this.trail?.conditions;
-        const gpsJumpDistance = this.trail?.gps_jump_distance;
 
         for (const [idx, person] of this.persons.entries()) {
             if (this._hiddenPersons.has(person.entity_id)) continue;
@@ -544,14 +556,21 @@ class LensMapCard extends LitElement {
 
             let historyToFilter = history;
 
-            if (gpsJumpDistance && gpsJumpDistance > 0) {
-                historyToFilter = [historyToFilter[0]];
-                for (let i = 1; i < historyToFilter.length; i++) {
-                    const prev = historyToFilter[i - 1];
-                    const curr = historyToFilter[i];
-                    if (haversine(prev.lat, prev.lon, curr.lat, curr.lon) <= gpsJumpDistance) {
-                        historyToFilter.push(curr);
+            if (this.trail?.gps_jump_filter) {
+                const original = historyToFilter;
+                if (original.length >= 3) {
+                    historyToFilter = [original[0]];
+                    for (let i = 1; i < original.length - 1; i++) {
+                        const prev = historyToFilter[historyToFilter.length - 1];
+                        const curr = original[i];
+                        const next = original[i + 1];
+                        const distPrevNext = haversine(prev.lat, prev.lon, next.lat, next.lon);
+                        const distPrevCurr = haversine(prev.lat, prev.lon, curr.lat, curr.lon);
+                        if (distPrevCurr <= distPrevNext) {
+                            historyToFilter.push(curr);
+                        }
                     }
+                    historyToFilter.push(original[original.length - 1]);
                 }
             }
 
@@ -721,7 +740,11 @@ class LensMapCard extends LitElement {
         }
 
         this._lastCenterPos = { lat: target.lat, lng: target.lon };
-        const zoom = this._effectiveAutoZoom ? this._getFitZoom() : this._leafletMap.getZoom();
+        const zoom = this._effectiveAutoZoom
+            ? (this._isZoomOutOnly
+                ? Math.min(this._getFitZoom(), this._leafletMap.getZoom())
+                : this._getFitZoom())
+            : this._leafletMap.getZoom();
         this._leafletMap.setView([target.lat, target.lon], zoom, { animate: true });
     }
 
@@ -895,7 +918,8 @@ class LensMapCard extends LitElement {
     }
 
     private _toggleAutoZoom() {
-        this._autoZoomEnabled = !this._autoZoomEnabled;
+        const cycle: Record<string, 'off' | 'fit' | 'zoom_out'> = { off: 'fit', fit: 'zoom_out', zoom_out: 'off' };
+        this._autoZoomMode = cycle[this._autoZoomMode] || 'off';
         if (this._effectiveAutoZoom && this._leafletMap) {
             if (this.center?.type === 'visible') {
                 this._fitMapToVisibleMarkers();
@@ -924,7 +948,7 @@ class LensMapCard extends LitElement {
                         ${this.show_auto_zoom ? html`
                             <button class="overlay-btn ${this._effectiveAutoZoom ? 'active' : ''}"
                                     @click=${this._toggleAutoZoom}
-                                    title="${this._effectiveAutoZoom ? 'Disable' : 'Enable'} auto zoom">
+                                    title="${this._autoZoomMode === 'off' ? 'Auto zoom: Off (click to enable fit)' : this._autoZoomMode === 'fit' ? 'Auto zoom: Fit all (click to enable zoom out only)' : 'Auto zoom: Zoom out only (click to disable)'}">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="12" cy="12" r="3"/>
                                     <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
