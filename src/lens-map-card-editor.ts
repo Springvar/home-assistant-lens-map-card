@@ -344,18 +344,26 @@ export class LensMapCardEditor extends LitElement {
         if (sensor === 'distance_from_person') {
             const isPerPersonContext = context !== 'default';
             return html`
-                <select .value=${String(condition.target_person ?? '')}
-                    @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
-                        (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
-                    })}>
-                    <option value="">Select person...</option>
-                    ${isPerPersonContext ? html`<option value="self" ?selected=${condition.target_person === 'self'}>Trailmaker</option>` : ''}
-                    ${this._getWhoOptions().map(eid => html`
-                        <option value="${eid}" ?selected=${condition.target_person === eid}>
-                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
-                        </option>
-                    `)}
-                </select>`;
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <select .value=${String(condition.target_person ?? '')}
+                        @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                            (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
+                        })}>
+                        <option value="">Select person...</option>
+                        ${isPerPersonContext ? html`<option value="self" ?selected=${condition.target_person === 'self'}>Trailmaker</option>` : ''}
+                        ${this._getWhoOptions().map(eid => html`
+                            <option value="${eid}" ?selected=${condition.target_person === eid}>
+                                ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                            </option>
+                        `)}
+                    </select>
+                    <input type="number" min="0" step="10"
+                        .value=${String(condition.value ?? '')}
+                        @input=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                            (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                        })}
+                        placeholder="meters" style="width: 80px;" />
+                </div>`;
         }
 
         if (sensor === 'distance_from_zone') {
@@ -631,18 +639,26 @@ export class LensMapCardEditor extends LitElement {
 
         if (sensor === 'distance_from_person') {
             return html`
-                <select .value=${String(condition.target_person ?? '')}
-                    @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
-                        (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
-                    })}>
-                    <option value="">Select person...</option>
-                    <option value="self" ?selected=${condition.target_person === 'self'}>Trailmaker</option>
-                    ${this._getWhoOptions().map(eid => html`
-                        <option value="${eid}" ?selected=${condition.target_person === eid}>
-                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
-                        </option>
-                    `)}
-                </select>`;
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <select .value=${String(condition.target_person ?? '')}
+                        @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                            (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
+                        })}>
+                        <option value="">Select person...</option>
+                        <option value="self" ?selected=${condition.target_person === 'self'}>Trailmaker</option>
+                        ${this._getWhoOptions().map(eid => html`
+                            <option value="${eid}" ?selected=${condition.target_person === eid}>
+                                ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                            </option>
+                        `)}
+                    </select>
+                    <input type="number" min="0" step="10"
+                        .value=${String(condition.value ?? '')}
+                        @input=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                            (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                        })}
+                        placeholder="meters" style="width: 80px;" />
+                </div>`;
         }
 
         if (sensor === 'distance_from_zone') {
