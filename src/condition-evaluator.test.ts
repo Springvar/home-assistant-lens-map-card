@@ -1,4 +1,4 @@
-import { evaluateConditions, extractDistanceThreshold } from './condition-evaluator';
+import { evaluateConditions, extractDistanceThreshold, evaluateTrailPointConditions, type TrailPointContext } from './condition-evaluator';
 import type { PersonConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition } from './types';
 
 function makeHass(overrides: Record<string, any> = {}) {
@@ -372,5 +372,180 @@ describe('DEFAULT condition', () => {
         expect(evaluateConditions(makeHass(), makePerson(), null, not, defaults)).toBe(false);
         // jane doesn't match defaults, NOT inverts to true
         expect(evaluateConditions(makeHass(), makePerson({ entity_id: 'person.jane' }), null, not, defaults)).toBe(true);
+    });
+});
+
+describe('SensorCondition - distance_from_person (display)', () => {
+    it('evaluates distance between two persons', () => {
+        const cond: SensorCondition = {
+            sensor: 'distance_from_person',
+            comparator: 'lt',
+            value: 1000000,
+            target_person: 'person.jane',
+        };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(true);
+    });
+
+    it('returns Infinity when target_person is missing', () => {
+        const cond: SensorCondition = {
+            sensor: 'distance_from_person',
+            comparator: 'lt',
+            value: 1000,
+        };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(false);
+    });
+});
+
+describe('SensorCondition - distance_from_zone (display)', () => {
+    it('evaluates distance from person to zone', () => {
+        const cond: SensorCondition = {
+            sensor: 'distance_from_zone',
+            comparator: 'lt',
+            value: 1000000,
+            zone: { lat: 52.5, lon: 13.4 },
+        };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(true);
+    });
+
+    it('returns Infinity when zone is missing', () => {
+        const cond: SensorCondition = {
+            sensor: 'distance_from_zone',
+            comparator: 'lt',
+            value: 1000,
+        };
+        expect(evaluateConditions(makeHass(), makePerson(), null, cond)).toBe(false);
+    });
+});
+
+describe('evaluateTrailPointConditions', () => {
+    function makeTrailCtx(overrides: Partial<TrailPointContext> = {}): TrailPointContext {
+        return {
+            point: { lat: 52.5, lon: 13.4 },
+            personLocation: { latitude: 52.5, longitude: 13.4 },
+            userLocation: { latitude: 52.5, longitude: 13.4 },
+            hass: makeHass(),
+            person: makePerson(),
+            ...overrides,
+        };
+    }
+
+    describe('distance_from_user', () => {
+        it('passes when point is within distance', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 52.5, lon: 13.4 },
+                userLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const cond: SensorCondition = { sensor: 'distance_from_user', comparator: 'lte', value: 100 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(true);
+        });
+
+        it('fails when point is far away', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 48.1, lon: 11.6 },
+                userLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const cond: SensorCondition = { sensor: 'distance_from_user', comparator: 'lte', value: 100 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(false);
+        });
+
+        it('returns Infinity when no user location', () => {
+            const ctx = makeTrailCtx({ userLocation: null });
+            const cond: SensorCondition = { sensor: 'distance_from_user', comparator: 'lte', value: 1000000 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(false);
+        });
+    });
+
+    describe('distance_from_person', () => {
+        it('passes when point is near person', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 52.5, lon: 13.4 },
+                personLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const cond: SensorCondition = { sensor: 'distance_from_person', comparator: 'lte', value: 100 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(true);
+        });
+
+        it('fails when point is far from person', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 48.1, lon: 11.6 },
+                personLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const cond: SensorCondition = { sensor: 'distance_from_person', comparator: 'lte', value: 100 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(false);
+        });
+    });
+
+    describe('distance_from_zone', () => {
+        it('passes when point is near zone', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 52.5, lon: 13.4 },
+            });
+            const cond: SensorCondition = {
+                sensor: 'distance_from_zone',
+                comparator: 'lte',
+                value: 100,
+                zone: { lat: 52.5, lon: 13.4 },
+            };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(true);
+        });
+
+        it('fails when point is far from zone', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 48.1, lon: 11.6 },
+            });
+            const cond: SensorCondition = {
+                sensor: 'distance_from_zone',
+                comparator: 'lte',
+                value: 100,
+                zone: { lat: 52.5, lon: 13.4 },
+            };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(false);
+        });
+
+        it('returns Infinity when zone is missing', () => {
+            const ctx = makeTrailCtx();
+            const cond: SensorCondition = { sensor: 'distance_from_zone', comparator: 'lte', value: 1000000 };
+            expect(evaluateTrailPointConditions(ctx, cond)).toBe(false);
+        });
+    });
+
+    describe('combined conditions', () => {
+        it('AND requires both to pass', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 52.5, lon: 13.4 },
+                userLocation: { latitude: 52.5, longitude: 13.4 },
+                personLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const group: GroupCondition = {
+                type: 'AND',
+                conditions: [
+                    { sensor: 'distance_from_user', comparator: 'lte', value: 100 },
+                    { sensor: 'distance_from_person', comparator: 'lte', value: 100 },
+                ],
+            };
+            expect(evaluateTrailPointConditions(ctx, group)).toBe(true);
+        });
+
+        it('OR passes if either passes', () => {
+            const ctx = makeTrailCtx({
+                point: { lat: 48.1, lon: 11.6 },
+                userLocation: { latitude: 52.5, longitude: 13.4 },
+                personLocation: { latitude: 52.5, longitude: 13.4 },
+            });
+            const group: GroupCondition = {
+                type: 'OR',
+                conditions: [
+                    { sensor: 'distance_from_user', comparator: 'lte', value: 100 },
+                    { sensor: 'distance_from_person', comparator: 'lte', value: 100 },
+                ],
+            };
+            expect(evaluateTrailPointConditions(ctx, group)).toBe(false);
+        });
+    });
+
+    describe('empty conditions', () => {
+        it('returns true for empty array', () => {
+            expect(evaluateTrailPointConditions(makeTrailCtx(), [])).toBe(true);
+        });
     });
 });

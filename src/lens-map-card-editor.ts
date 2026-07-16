@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
-import { TRAIL_COLORS, migrateDisplayRules } from './types';
+import { TRAIL_COLORS, migrateDisplayRules, migrateTrailConfig } from './types';
 import type { PersonSensors, TrailConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, ConditionComparator } from './types';
 import { isSensorCondition, isGroupCondition, isNotCondition, isDefaultCondition } from './condition-evaluator';
 import { BUILT_IN_SENSORS } from './types';
@@ -66,7 +66,7 @@ export class LensMapCardEditor extends LitElement {
             map: safeConfig.map || { type: 'color', opacity: 1 },
             zoom: safeConfig.zoom || { level: 10, auto_level: false },
             center: safeConfig.center || { type: 'user' },
-            trail: safeConfig.trail || { enabled: false, max_age: 60 },
+            trail: migrateTrailConfig(safeConfig.trail || { enabled: false, max_age: 60 }),
             show_auto_zoom: safeConfig.show_auto_zoom ?? true,
             show_toggle_buttons: safeConfig.show_toggle_buttons ?? true
         };
@@ -210,7 +210,9 @@ export class LensMapCardEditor extends LitElement {
 
     private _getSensorOptions(context: ConditionContext): { group: string; value: string; label: string }[] {
         const options: { group: string; value: string; label: string }[] = [
-            { group: 'Built-in', value: 'distance', label: 'Distance (m)' },
+            { group: 'Built-in', value: 'distance', label: 'Distance from user (m)' },
+            { group: 'Built-in', value: 'distance_from_person', label: 'Distance from person (m)' },
+            { group: 'Built-in', value: 'distance_from_zone', label: 'Distance from zone (m)' },
             { group: 'Built-in', value: 'state', label: 'Person state' },
             { group: 'Selector', value: 'who', label: 'Who (person)' },
             { group: 'Selector', value: 'where', label: 'Where (zone)' },
@@ -233,7 +235,7 @@ export class LensMapCardEditor extends LitElement {
     }
 
     private _getComparatorOptions(sensor: string): { value: ConditionComparator; label: string }[] {
-        if (sensor === 'distance' || sensor === 'random') return NUMERIC_COMPARATORS;
+        if (sensor === 'distance' || sensor === 'distance_from_person' || sensor === 'distance_from_zone' || sensor === 'random') return NUMERIC_COMPARATORS;
         if (sensor === 'state') return [...NUMERIC_COMPARATORS, ...TEXT_COMPARATORS];
         return TEXT_COMPARATORS;
     }
@@ -337,6 +339,46 @@ export class LensMapCardEditor extends LitElement {
                         (c as SensorCondition).value = (e.target as HTMLInputElement).value;
                     })}
                     placeholder="0-100" style="width: 80px;" />`;
+        }
+
+        if (sensor === 'distance_from_person') {
+            return html`
+                <select .value=${String(condition.target_person ?? '')}
+                    @change=${(e: Event) => this._updateConditionAtPath(path, (c) => {
+                        (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
+                    })}>
+                    <option value="">Select person...</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.target_person === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'distance_from_zone') {
+            const zone = condition.zone || { lat: 0, lon: 0 };
+            return html`
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <input type="number" step="any" .value=${zone.lat || ''}
+                        @input=${(e: Event) => {
+                            const val = parseFloat((e.target as HTMLInputElement).value) || 0;
+                            this._updateConditionAtPath(path, (c) => {
+                                const sc = c as SensorCondition;
+                                sc.zone = { ...sc.zone, lat: val, lon: sc.zone?.lon ?? 0 };
+                            });
+                        }}
+                        placeholder="Lat" style="width: 80px;" />
+                    <input type="number" step="any" .value=${zone.lon || ''}
+                        @input=${(e: Event) => {
+                            const val = parseFloat((e.target as HTMLInputElement).value) || 0;
+                            this._updateConditionAtPath(path, (c) => {
+                                const sc = c as SensorCondition;
+                                sc.zone = { ...sc.zone, lat: sc.zone?.lat ?? 0, lon: val };
+                            });
+                        }}
+                        placeholder="Lon" style="width: 80px;" />
+                </div>`;
         }
 
         if (['oneOf', 'notOneOf'].includes(condition.comparator)) {
@@ -512,6 +554,292 @@ export class LensMapCardEditor extends LitElement {
             return this._renderDefaultCondition(condition, path);
         }
         return html``;
+    }
+
+    private _renderTrailCondition(condition: DisplayCondition, path: string, context: string, isNested: boolean = false) {
+        if (isSensorCondition(condition)) {
+            return this._renderTrailSensorCondition(condition, path, context);
+        }
+        if (isGroupCondition(condition)) {
+            return this._renderTrailGroupCondition(condition, path, context, isNested);
+        }
+        if (isNotCondition(condition)) {
+            return this._renderTrailNotCondition(condition, path, context, isNested);
+        }
+        return html``;
+    }
+
+    private _renderTrailSensorCondition(condition: SensorCondition, path: string, context: string) {
+        const sensorOptions = this._getSensorOptions(context as ConditionContext);
+        const groups = [...new Set(sensorOptions.map(o => o.group))];
+        const comparatorOptions = this._getComparatorOptions(condition.sensor);
+
+        return html`
+            <details class="condition-box condition-sensor" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-sensor">Value</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeTrailConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="condition-row">
+                        <label>Sensor:</label>
+                        <select .value=${condition.sensor}
+                            @change=${(e: Event) => {
+                                const newSensor = (e.target as HTMLSelectElement).value;
+                                this._updateTrailConditionAtPath(path, (c) => {
+                                    const sc = c as SensorCondition;
+                                    sc.sensor = newSensor;
+                                    const newComparators = this._getComparatorOptions(newSensor);
+                                    if (!newComparators.find(o => o.value === sc.comparator)) {
+                                        sc.comparator = newComparators[0].value;
+                                    }
+                                });
+                            }}>
+                            ${groups.map(g => html`
+                                <optgroup label="${g}">
+                                    ${sensorOptions.filter(o => o.group === g).map(o => html`
+                                        <option value="${o.value}" ?selected=${condition.sensor === o.value}>${o.label}</option>
+                                    `)}
+                                </optgroup>
+                            `)}
+                        </select>
+                    </div>
+                    <div class="condition-row">
+                        <label>Comparator:</label>
+                        <select .value=${condition.comparator}
+                            @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                                (c as SensorCondition).comparator = (e.target as HTMLSelectElement).value as ConditionComparator;
+                            })}>
+                            ${comparatorOptions.map(o => html`
+                                <option value="${o.value}" ?selected=${condition.comparator === o.value}>${o.label}</option>
+                            `)}
+                        </select>
+                    </div>
+                    <div class="condition-row">
+                        <label>Value:</label>
+                        ${this._renderTrailConditionValueInput(condition, path)}
+                    </div>
+                </div>
+            </details>`;
+    }
+
+    private _renderTrailConditionValueInput(condition: SensorCondition, path: string) {
+        const { sensor } = condition;
+
+        if (sensor === 'distance_from_person') {
+            return html`
+                <select .value=${String(condition.target_person ?? '')}
+                    @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                        (c as SensorCondition).target_person = (e.target as HTMLSelectElement).value || undefined;
+                    })}>
+                    <option value="">Select person...</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.target_person === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'distance_from_zone') {
+            const zone = condition.zone || { lat: 0, lon: 0 };
+            return html`
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <input type="number" step="any" .value=${zone.lat || ''}
+                        @input=${(e: Event) => {
+                            const val = parseFloat((e.target as HTMLInputElement).value) || 0;
+                            this._updateTrailConditionAtPath(path, (c) => {
+                                const sc = c as SensorCondition;
+                                sc.zone = { ...sc.zone, lat: val, lon: sc.zone?.lon ?? 0 };
+                            });
+                        }}
+                        placeholder="Lat" style="width: 80px;" />
+                    <input type="number" step="any" .value=${zone.lon || ''}
+                        @input=${(e: Event) => {
+                            const val = parseFloat((e.target as HTMLInputElement).value) || 0;
+                            this._updateTrailConditionAtPath(path, (c) => {
+                                const sc = c as SensorCondition;
+                                sc.zone = { ...sc.zone, lat: sc.zone?.lat ?? 0, lon: val };
+                            });
+                        }}
+                        placeholder="Lon" style="width: 80px;" />
+                </div>`;
+        }
+
+        if (sensor === 'when') {
+            const selectedValues = Array.isArray(condition.value)
+                ? condition.value
+                : typeof condition.value === 'string'
+                    ? condition.value.split(',').map(v => v.trim())
+                    : [];
+            return html`
+                <div class="multi-select">
+                    ${WHEN_OPTIONS.map(opt => html`
+                        <label class="chip ${selectedValues.includes(opt) ? 'selected' : ''}">
+                            <input type="checkbox"
+                                ?checked=${selectedValues.includes(opt)}
+                                @change=${(e: Event) => {
+                                    const checked = (e.target as HTMLInputElement).checked;
+                                    const newVal = checked
+                                        ? [...selectedValues, opt]
+                                        : selectedValues.filter(v => v !== opt);
+                                    this._updateTrailConditionAtPath(path, (c) => {
+                                        (c as SensorCondition).value = newVal.length === 1 ? newVal[0] : newVal;
+                                    });
+                                }} />
+                            ${opt}
+                        </label>
+                    `)}
+                </div>`;
+        }
+
+        if (sensor === 'who') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select person...</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'where') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select zone...</option>
+                    ${this._getWhereOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'user') {
+            return html`
+                <select .value=${String(condition.value ?? '')}
+                    @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLSelectElement).value;
+                    })}>
+                    <option value="">Select...</option>
+                    <option value="user" ?selected=${condition.value === 'user'}>Current user</option>
+                    ${this._getWhoOptions().map(eid => html`
+                        <option value="${eid}" ?selected=${condition.value === eid}>
+                            ${this.hass.states[eid]?.attributes?.friendly_name || eid}
+                        </option>
+                    `)}
+                </select>`;
+        }
+
+        if (sensor === 'random') {
+            return html`
+                <input type="number" min="0" max="100" step="1"
+                    .value=${String(condition.value ?? '')}
+                    @input=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                        (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                    })}
+                    placeholder="0-100" style="width: 80px;" />`;
+        }
+
+        if (['oneOf', 'notOneOf'].includes(condition.comparator)) {
+            const values = Array.isArray(condition.value)
+                ? condition.value
+                : typeof condition.value === 'string'
+                    ? condition.value.split(',').map(v => v.trim()).filter(v => v)
+                    : [String(condition.value ?? '')];
+            return html`
+                <div class="value-chips">
+                    ${values.map((v, i) => html`
+                        <span class="chip selected">${v}
+                            <button class="chip-remove" @click=${() => {
+                                const newVals = values.filter((_, idx) => idx !== i);
+                                this._updateTrailConditionAtPath(path, (c) => {
+                                    (c as SensorCondition).value = newVals;
+                                });
+                            }}>&times;</button>
+                        </span>
+                    `)}
+                    <input type="text" placeholder="Add value..." style="width: 100px;"
+                        @keydown=${(e: KeyboardEvent) => {
+                            if (e.key === 'Enter') {
+                                const input = e.target as HTMLInputElement;
+                                const val = input.value.trim();
+                                if (val) {
+                                    this._updateTrailConditionAtPath(path, (c) => {
+                                        const existing = Array.isArray((c as SensorCondition).value)
+                                            ? (c as SensorCondition).value as string[]
+                                            : [String((c as SensorCondition).value ?? '')];
+                                        (c as SensorCondition).value = [...existing, val];
+                                    });
+                                    input.value = '';
+                                }
+                            }
+                        }} />
+                </div>`;
+        }
+
+        return html`
+            <input type="text" .value=${String(condition.value ?? '')}
+                @input=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                    (c as SensorCondition).value = (e.target as HTMLInputElement).value;
+                })}
+                placeholder="value" style="width: 100px;" />`;
+    }
+
+    private _renderTrailGroupCondition(condition: GroupCondition, path: string, context: string, isNested: boolean = false) {
+        return html`
+            <details class="condition-box condition-group ${isNested ? 'nested' : ''}" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-group">${condition.type}</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeTrailConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="condition-row">
+                        <label>Logic:</label>
+                        <select .value=${condition.type}
+                            @change=${(e: Event) => this._updateTrailConditionAtPath(path, (c) => {
+                                (c as GroupCondition).type = (e.target as HTMLSelectElement).value as 'AND' | 'OR';
+                            })}>
+                            <option value="AND" ?selected=${condition.type === 'AND'}>AND (all must match)</option>
+                            <option value="OR" ?selected=${condition.type === 'OR'}>OR (any can match)</option>
+                        </select>
+                    </div>
+                    <div class="nested-conditions">
+                        ${condition.conditions.map((child, i) => this._renderTrailCondition(child, `${path}:${i}`, context, true))}
+                    </div>
+                    <div class="add-condition-buttons">
+                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { sensor: 'distance_from_user', comparator: 'lte', value: '1000' })}>+ Value</button>
+                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
+                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } })}>+ NOT</button>
+                    </div>
+                </div>
+            </details>`;
+    }
+
+    private _renderTrailNotCondition(condition: NotCondition, path: string, context: string, isNested: boolean = false) {
+        return html`
+            <details class="condition-box condition-not ${isNested ? 'nested' : ''}" open>
+                <summary class="condition-summary">
+                    <span class="condition-badge badge-not">NOT</span>
+                    <span class="condition-text">${this._getConditionSummary(condition)}</span>
+                    <button class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeTrailConditionAtPath(path); }} title="Remove">&times;</button>
+                </summary>
+                <div class="condition-body">
+                    <div class="nested-conditions">
+                        ${this._renderTrailCondition(condition.condition, `${path}:0`, context, true)}
+                    </div>
+                </div>
+            </details>`;
     }
 
     private _addPerson(e: Event) {
@@ -717,15 +1045,9 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
-    private _trailMaxDistanceChanged(e: Event) {
+    private _trailGpsJumpDistanceChanged(e: Event) {
         const value = (e.target as HTMLInputElement).value;
-        this._config = { ...this._config, trail: { ...this._config.trail, max_distance: value ? parseFloat(value) : undefined } };
-        this._emitConfigChanged();
-    }
-
-    private _trailProximityChanged(e: Event) {
-        const value = parseInt((e.target as HTMLInputElement).value) || 0;
-        this._config = { ...this._config, trail: { ...this._config.trail, proximity: value } };
+        this._config = { ...this._config, trail: { ...this._config.trail, gps_jump_distance: value ? parseFloat(value) : undefined } };
         this._emitConfigChanged();
     }
 
@@ -764,6 +1086,109 @@ export class LensMapCardEditor extends LitElement {
         delete colors[entityId];
         this._config = { ...this._config, trail: { ...this._config.trail, colors } };
         this._emitConfigChanged();
+    }
+
+    private _getTrailConditions(context: string): DisplayCondition[] {
+        if (context === 'default' || context === 'trail_default') {
+            return this._config.trail?.conditions || [];
+        }
+        if (context.startsWith('trail_person:')) {
+            const personIdx = parseInt(context.split(':')[1]);
+            const entityId = this._config.persons?.[personIdx]?.entity_id;
+            if (!entityId) return [];
+            return this._config.trail?.person_conditions?.[entityId] || [];
+        }
+        if (context.startsWith('person:')) {
+            const personIdx = parseInt(context.split(':')[1]);
+            const entityId = this._config.persons?.[personIdx]?.entity_id;
+            if (!entityId) return [];
+            return this._config.trail?.person_conditions?.[entityId] || [];
+        }
+        return [];
+    }
+
+    private _setTrailConditions(context: string, conditions: DisplayCondition[]) {
+        const trail = { ...(this._config.trail || {}) };
+        if (context === 'default' || context === 'trail_default') {
+            trail.conditions = conditions;
+        } else if (context.startsWith('trail_person:')) {
+            const personIdx = parseInt(context.split(':')[1]);
+            const entityId = this._config.persons?.[personIdx]?.entity_id;
+            if (!entityId) return;
+            trail.person_conditions = { ...(trail.person_conditions || {}), [entityId]: conditions };
+        } else if (context.startsWith('person:')) {
+            const personIdx = parseInt(context.split(':')[1]);
+            const entityId = this._config.persons?.[personIdx]?.entity_id;
+            if (!entityId) return;
+            trail.person_conditions = { ...(trail.person_conditions || {}), [entityId]: conditions };
+        } else {
+            return;
+        }
+        this._config = { ...this._config, trail };
+        this._emitConfigChanged();
+    }
+
+    private _updateTrailConditionAtPath(path: string, updater: (c: DisplayCondition) => void) {
+        const parts = path.split(':');
+        const context = parts[0] === 'trail_default' ? 'trail_default' : parts.slice(0, 2).join(':');
+        const indices = (parts[0] === 'trail_default' ? parts.slice(1) : parts.slice(2)).map(Number);
+
+        const conditions = JSON.parse(JSON.stringify(this._getTrailConditions(context))) as DisplayCondition[];
+        let current = conditions;
+        for (let i = 0; i < indices.length - 1; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        updater(current[indices[indices.length - 1]]);
+        this._setTrailConditions(context, conditions);
+    }
+
+    private _addTrailConditionToPath(parentPath: string, newCondition: DisplayCondition) {
+        const parts = parentPath.split(':');
+        const context = parts[0] === 'trail_default' ? 'trail_default' : parts.slice(0, 2).join(':');
+        const indices = (parts[0] === 'trail_default' ? parts.slice(1) : parts.slice(2)).map(Number);
+
+        const conditions = JSON.parse(JSON.stringify(this._getTrailConditions(context))) as DisplayCondition[];
+        let current: DisplayCondition[] = conditions;
+        for (let i = 0; i < indices.length; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        current.push(newCondition);
+        this._setTrailConditions(context, conditions);
+    }
+
+    private _removeTrailConditionAtPath(path: string) {
+        const parts = path.split(':');
+        const context = parts[0] === 'trail_default' ? 'trail_default' : parts.slice(0, 2).join(':');
+        const indices = (parts[0] === 'trail_default' ? parts.slice(1) : parts.slice(2)).map(Number);
+
+        const conditions = JSON.parse(JSON.stringify(this._getTrailConditions(context))) as DisplayCondition[];
+        let current = conditions;
+        for (let i = 0; i < indices.length - 1; i++) {
+            const c = current[indices[i]];
+            if (isGroupCondition(c)) {
+                current = c.conditions;
+            } else if (isNotCondition(c)) {
+                current = [c.condition];
+            } else {
+                return;
+            }
+        }
+        current.splice(indices[indices.length - 1], 1);
+        this._setTrailConditions(context, conditions);
     }
 
     private _emitConfigChanged() {
@@ -888,6 +1313,45 @@ export class LensMapCardEditor extends LitElement {
                                                 }}>+ Default</button>
                                             </div>
                                         </div>
+
+                                        <!-- Trail Point Conditions (per-person) -->
+                                        <div style="margin-top: 1em;">
+                                            <strong>Trail Point Conditions</strong>
+                                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                                                Override trail point conditions for this person. If empty, default trail conditions apply.
+                                            </p>
+                                            <div class="conditions-list">
+                                                ${(this._config.trail?.person_conditions?.[person.entity_id] || []).map((cond, cidx) =>
+                                                    this._renderTrailCondition(cond, `trail_person:${idx}:${cidx}`, `trail_person:${idx}`)
+                                                )}
+                                            </div>
+                                            <div class="add-condition-buttons">
+                                                <button class="btn-small" @click=${() => {
+                                                    const trail = { ...(this._config.trail || {}) };
+                                                    if (!trail.person_conditions) trail.person_conditions = {};
+                                                    if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
+                                                    trail.person_conditions[person.entity_id].push({ sensor: 'distance_from_user', comparator: 'lte', value: '1000' });
+                                                    this._config = { ...this._config, trail };
+                                                    this._emitConfigChanged();
+                                                }}>+ Value</button>
+                                                <button class="btn-small" @click=${() => {
+                                                    const trail = { ...(this._config.trail || {}) };
+                                                    if (!trail.person_conditions) trail.person_conditions = {};
+                                                    if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
+                                                    trail.person_conditions[person.entity_id].push({ type: 'AND', conditions: [] });
+                                                    this._config = { ...this._config, trail };
+                                                    this._emitConfigChanged();
+                                                }}>+ Group</button>
+                                                <button class="btn-small" @click=${() => {
+                                                    const trail = { ...(this._config.trail || {}) };
+                                                    if (!trail.person_conditions) trail.person_conditions = {};
+                                                    if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
+                                                    trail.person_conditions[person.entity_id].push({ type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } });
+                                                    this._config = { ...this._config, trail };
+                                                    this._emitConfigChanged();
+                                                }}>+ NOT</button>
+                                            </div>
+                                        </div>
                                 `)}
                             </div>
                         </div>
@@ -938,16 +1402,12 @@ export class LensMapCardEditor extends LitElement {
                                 </label>
                             </div>
                             <div style="margin-top: 0.5em;">
-                                <label>Max history age (minutes):</label>
+                                <label>Max trail age (minutes):</label>
                                 <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
                             </div>
                             <div style="margin-top: 0.5em;">
-                                <label>Max trail distance (meters, 0 = use default rule):</label>
-                                <input type="number" .value=${this._config.trail?.max_distance ?? ''} min="0" step="100" @input=${this._trailMaxDistanceChanged} style="width: 100px;" />
-                            </div>
-                            <div style="margin-top: 0.5em;">
-                                <label>Hide trail points within (meters of person):</label>
-                                <input type="number" .value=${this._config.trail?.proximity ?? 50} min="0" step="10" @input=${this._trailProximityChanged} style="width: 80px;" />
+                                <label>GPS jump filter (meters, 0 = off):</label>
+                                <input type="number" .value=${this._config.trail?.gps_jump_distance ?? ''} min="0" step="100" @input=${this._trailGpsJumpDistanceChanged} style="width: 100px;" />
                             </div>
                             <div style="margin-top: 0.5em;">
                                 <label>Newest point opacity:</label>
@@ -974,6 +1434,41 @@ export class LensMapCardEditor extends LitElement {
                                         </div>
                                     `;
                                 })}
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 1em;">
+                            <strong>Trail Point Conditions (Default)</strong>
+                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                                Conditions applied to each trail point to control visibility. All top-level conditions must match (implicit AND).
+                            </p>
+                            <div class="conditions-list">
+                                ${(this._config.trail?.conditions || []).map((cond, cidx) =>
+                                    this._renderTrailCondition(cond, `trail_default:${cidx}`, 'trail_default')
+                                )}
+                            </div>
+                            <div class="add-condition-buttons">
+                                <button class="btn-small" @click=${() => {
+                                    const trail = { ...(this._config.trail || {}) };
+                                    if (!trail.conditions) trail.conditions = [];
+                                    trail.conditions.push({ sensor: 'distance_from_user', comparator: 'lte', value: '1000' });
+                                    this._config = { ...this._config, trail };
+                                    this._emitConfigChanged();
+                                }}>+ Value</button>
+                                <button class="btn-small" @click=${() => {
+                                    const trail = { ...(this._config.trail || {}) };
+                                    if (!trail.conditions) trail.conditions = [];
+                                    trail.conditions.push({ type: 'AND', conditions: [] });
+                                    this._config = { ...this._config, trail };
+                                    this._emitConfigChanged();
+                                }}>+ Group</button>
+                                <button class="btn-small" @click=${() => {
+                                    const trail = { ...(this._config.trail || {}) };
+                                    if (!trail.conditions) trail.conditions = [];
+                                    trail.conditions.push({ type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } });
+                                    this._config = { ...this._config, trail };
+                                    this._emitConfigChanged();
+                                }}>+ NOT</button>
                             </div>
                         </div>
                     </div>

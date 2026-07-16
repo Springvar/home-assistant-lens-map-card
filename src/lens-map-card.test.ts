@@ -82,7 +82,7 @@ describe('evaluateRule', () => {
     });
 });
 
-import { migrateDisplayRule, migrateDisplayRules } from './types';
+import { migrateDisplayRule, migrateDisplayRules, migrateTrailConfig } from './types';
 
 describe('migrateDisplayRule', () => {
     it('converts a single DisplayRule to SensorCondition', () => {
@@ -146,5 +146,54 @@ describe('migrateDisplayRules', () => {
                 { sensor: 'state', comparator: 'eq', value: 'home' },
             ],
         });
+    });
+});
+
+describe('migrateTrailConfig', () => {
+    it('returns trail unchanged when no legacy fields', () => {
+        const trail = { enabled: true, max_age: 30 };
+        const result = migrateTrailConfig(trail);
+        expect(result).toEqual({ enabled: true, max_age: 30 });
+    });
+
+    it('migrates max_distance to distance_from_user condition', () => {
+        const trail = { enabled: true, max_age: 60, max_distance: 500 };
+        const result = migrateTrailConfig(trail);
+        expect(result.conditions).toEqual([
+            { sensor: 'distance_from_user', comparator: 'lte', value: 500 },
+        ]);
+        expect(result.max_distance).toBeUndefined();
+    });
+
+    it('migrates proximity to distance_from_person condition', () => {
+        const trail = { enabled: true, max_age: 60, proximity: 50 };
+        const result = migrateTrailConfig(trail);
+        expect(result.conditions).toEqual([
+            { sensor: 'distance_from_person', comparator: 'gt', value: 50 },
+        ]);
+        expect(result.proximity).toBeUndefined();
+    });
+
+    it('migrates both max_distance and proximity into AND group', () => {
+        const trail = { enabled: true, max_age: 60, max_distance: 1000, proximity: 100 };
+        const result = migrateTrailConfig(trail);
+        expect(result.conditions).toEqual([
+            {
+                type: 'AND',
+                conditions: [
+                    { sensor: 'distance_from_user', comparator: 'lte', value: 1000 },
+                    { sensor: 'distance_from_person', comparator: 'gt', value: 100 },
+                ],
+            },
+        ]);
+        expect(result.max_distance).toBeUndefined();
+        expect(result.proximity).toBeUndefined();
+    });
+
+    it('preserves existing conditions when no legacy fields', () => {
+        const existingConditions = [{ sensor: 'distance_from_user', comparator: 'lte' as const, value: 200 }];
+        const trail = { enabled: true, max_age: 60, conditions: existingConditions };
+        const result = migrateTrailConfig(trail);
+        expect(result.conditions).toEqual(existingConditions);
     });
 });

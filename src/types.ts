@@ -19,14 +19,19 @@ export interface DisplayRule {
 
 export type ConditionComparator = 'eq' | 'ne' | 'lt' | 'lte' | 'gt' | 'gte' | 'oneOf' | 'notOneOf';
 
-export const BUILT_IN_SENSORS = ['distance', 'state', 'who', 'where', 'when', 'user', 'random'] as const;
+export const BUILT_IN_SENSORS = ['distance', 'distance_from_person', 'distance_from_zone', 'state', 'who', 'where', 'when', 'user', 'random'] as const;
 export type BuiltInSensor = typeof BUILT_IN_SENSORS[number];
+
+export const TRAIL_SENSORS = ['distance_from_user', 'distance_from_person', 'distance_from_zone'] as const;
+export type TrailSensor = typeof TRAIL_SENSORS[number];
 
 export interface SensorCondition {
     sensor: string;
     comparator: ConditionComparator;
     value: unknown;
     attribute?: string;
+    zone?: { lat: number; lon: number };
+    target_person?: string;
 }
 
 export interface GroupCondition {
@@ -77,8 +82,9 @@ export interface CenterConfig {
 export interface TrailConfig {
     enabled?: boolean;
     max_age?: number;
-    max_distance?: number;
-    proximity?: number;
+    conditions?: DisplayCondition[];
+    person_conditions?: Record<string, DisplayCondition[]>;
+    gps_jump_distance?: number;
     newest_opacity?: number;
     oldest_opacity?: number;
     midpoint?: number;
@@ -113,4 +119,40 @@ export function migrateDisplayRules(rules: DisplayRule[]): DisplayCondition[] {
         conditions: enabled.map(migrateDisplayRule),
     };
     return [conditions];
+}
+
+export function migrateTrailConfig(trail: TrailConfig & Record<string, any>): TrailConfig {
+    const result: TrailConfig = { ...trail };
+
+    if (result.max_distance !== undefined || result.proximity !== undefined) {
+        const conds: DisplayCondition[] = [];
+
+        if (result.max_distance !== undefined) {
+            conds.push({ sensor: 'distance_from_user', comparator: 'lte', value: result.max_distance });
+        }
+
+        if (result.proximity !== undefined && result.proximity > 0) {
+            const proximityCondition: DisplayCondition = {
+                sensor: 'distance_from_person',
+                comparator: 'gt',
+                value: result.proximity,
+            };
+            if (conds.length > 0) {
+                conds.push(proximityCondition);
+            } else {
+                conds.push(proximityCondition);
+            }
+        }
+
+        if (conds.length === 1) {
+            result.conditions = conds;
+        } else if (conds.length > 1) {
+            result.conditions = [{ type: 'AND', conditions: conds }];
+        }
+
+        delete result.max_distance;
+        delete result.proximity;
+    }
+
+    return result;
 }

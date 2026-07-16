@@ -3,8 +3,8 @@ import { property, state } from 'lit/decorators.js';
 import './lens-map-card-editor';
 import type { LensMapCardEditor } from './lens-map-card-editor';
 import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig, DisplayCondition } from './types';
-import { TrailConfig, TRAIL_COLORS, migrateDisplayRules } from './types';
-import { evaluateConditions, extractDistanceThreshold } from './condition-evaluator';
+import { TrailConfig, TRAIL_COLORS, migrateDisplayRules, migrateTrailConfig } from './types';
+import { evaluateConditions, extractDistanceThreshold, evaluateTrailPointConditions, type TrailPointContext } from './condition-evaluator';
 
 export interface LensMapCardConfig {
     persons: PersonConfig[];
@@ -228,7 +228,7 @@ class LensMapCard extends LitElement {
         this.map = config.map || { type: 'color', opacity: 1 };
         this.zoom = config.zoom || { level: 10, auto_level: false };
         this.center = config.center || { type: 'user' };
-        this.trail = config.trail || { enabled: false, max_age: 60 };
+        this.trail = migrateTrailConfig(config.trail || { enabled: false, max_age: 60 });
         this.title = config.title || 'Lens Map';
         this.show_title = config.show_title !== false;
         this.show_auto_zoom = config.show_auto_zoom !== false;
@@ -487,7 +487,6 @@ class LensMapCard extends LitElement {
         if (!this._leafletMap || !this._hass) return;
         const enabled = this.trail?.enabled;
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
-        const maxDistance = this.trail?.max_distance ?? extractDistanceThreshold(this.displayConditions) ?? 1000;
         const now = Date.now();
 
         if (!enabled) {
@@ -500,21 +499,12 @@ class LensMapCard extends LitElement {
             const location = getLocation(this._hass, person.entity_id);
             if (!location) continue;
 
-            let distOk = true;
-            if (maxDistance > 0) {
-                const currentUserLoc = this._getCurrentUserLocation();
-                if (currentUserLoc) {
-                    const d = haversine(currentUserLoc.latitude, currentUserLoc.longitude, location.latitude, location.longitude);
-                    if (d > maxDistance) distOk = false;
-                }
-            }
-
             let history = this._positionHistory.get(person.entity_id) || [];
 
             const last = history[history.length - 1];
             const isDuplicate = last && haversine(last.lat, last.lon, location.latitude, location.longitude) <= 0.05;
 
-            if (!isDuplicate && distOk) {
+            if (!isDuplicate) {
                 history.push({ lat: location.latitude, lon: location.longitude, ts: now });
             }
 
@@ -540,67 +530,71 @@ class LensMapCard extends LitElement {
         if (!enabled || !this._leafletMap) return;
 
         const maxAgeMs = (this.trail?.max_age ?? 60) * 60 * 1000;
-        const trailMaxDistance = this.trail?.max_distance ?? extractDistanceThreshold(this.displayConditions) ?? 1000;
         const now = Date.now();
+        const userLoc = this._getCurrentUserLocation();
+        const trailConditions = this.trail?.conditions;
+        const gpsJumpDistance = this.trail?.gps_jump_distance;
 
         for (const [idx, person] of this.persons.entries()) {
             if (this._hiddenPersons.has(person.entity_id)) continue;
             const history = this._positionHistory.get(person.entity_id);
             if (!history || history.length < 2) continue;
 
-            const isVisible = this._evaluatePersonDisplayRules(person);
-            const userLoc = this._getCurrentUserLocation();
-
-            let filterDistance = trailMaxDistance;
-            if (!isVisible) {
-                const personConditions = person.displayConditions?.length
-                    ? person.displayConditions
-                    : this.displayConditions || [];
-                const distThreshold = extractDistanceThreshold(personConditions);
-                if (distThreshold !== null) {
-                    filterDistance = distThreshold;
-                }
-            }
-
-            let filteredHistory = history;
-            const kept = new Array(history.length).fill(true);
-
             const personLoc = getLocation(this._hass, person.entity_id);
-            const proximity = this.trail?.proximity ?? 50;
-            if (proximity > 0 && personLoc) {
-                for (let i = 0; i < history.length; i++) {
-                    const d = haversine(personLoc.latitude, personLoc.longitude, history[i].lat, history[i].lon);
-                    if (d <= proximity) kept[i] = false;
+
+            let historyToFilter = history;
+
+            if (gpsJumpDistance && gpsJumpDistance > 0) {
+                historyToFilter = [historyToFilter[0]];
+                for (let i = 1; i < historyToFilter.length; i++) {
+                    const prev = historyToFilter[i - 1];
+                    const curr = historyToFilter[i];
+                    if (haversine(prev.lat, prev.lon, curr.lat, curr.lon) <= gpsJumpDistance) {
+                        historyToFilter.push(curr);
+                    }
                 }
             }
 
-            if (filterDistance > 0 && userLoc) {
-                for (let i = 0; i < history.length; i++) {
-                    const d = haversine(userLoc.latitude, userLoc.longitude, history[i].lat, history[i].lon);
-                    if (d > filterDistance) kept[i] = false;
+            if (historyToFilter.length < 2) continue;
+
+            const personTrailConditions = this.trail?.person_conditions?.[person.entity_id] ?? trailConditions;
+            const defaultTrailConditions = personTrailConditions !== trailConditions ? trailConditions : undefined;
+
+            const kept = new Array(historyToFilter.length).fill(true);
+
+            if (personTrailConditions && personTrailConditions.length > 0) {
+                for (let i = 0; i < historyToFilter.length; i++) {
+                    const ctx: TrailPointContext = {
+                        point: historyToFilter[i],
+                        personLocation: personLoc,
+                        userLocation: userLoc,
+                        hass: this._hass,
+                        person,
+                    };
+                    kept[i] = evaluateTrailPointConditions(ctx, personTrailConditions, defaultTrailConditions);
                 }
             }
 
-            filteredHistory = history.filter((_, i) => kept[i]);
+            const filteredHistory = historyToFilter.filter((_, i) => kept[i]);
             if (filteredHistory.length < 2) continue;
 
             const color = this._getTrailColor(person, idx);
 
             const polylines: any[] = [];
             let segStart: number | null = null;
-            for (let i = 0; i < history.length; i++) {
+            for (let i = 0; i < historyToFilter.length; i++) {
                 if (kept[i]) {
                     if (segStart === null) segStart = i;
                 } else {
                     if (segStart !== null && i - segStart >= 2) {
-                        const seg = history.slice(segStart, i).map(p => [p.lat, p.lon] as [number, number]);
+                        const seg = historyToFilter.slice(segStart, i).map(p => [p.lat, p.lon] as [number, number]);
                         polylines.push(window.L.polyline(seg, { color, weight: 3, opacity: 0.7 }).addTo(this._leafletMap));
                     }
                     segStart = null;
                 }
             }
-            if (segStart !== null && history.length - segStart >= 2) {
-                const seg = history.slice(segStart).map(p => [p.lat, p.lon] as [number, number]);
+            if (segStart !== null && historyToFilter.length - segStart >= 2) {
+                const seg = historyToFilter.slice(segStart).map(p => [p.lat, p.lon] as [number, number]);
                 polylines.push(window.L.polyline(seg, { color, weight: 3, opacity: 0.7 }).addTo(this._leafletMap));
             }
 
@@ -624,6 +618,7 @@ class LensMapCard extends LitElement {
                 }).addTo(this._leafletMap);
             });
 
+            const isVisible = this._evaluatePersonDisplayRules(person);
             if (isVisible && personLoc && filteredHistory.length > 0) {
                 const last = filteredHistory[filteredHistory.length - 1];
                 polylines.push(window.L.polyline(

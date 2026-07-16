@@ -1,5 +1,13 @@
 import type { DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, PersonConfig, PersonSensors } from './types';
 
+export interface TrailPointContext {
+    point: { lat: number; lon: number };
+    personLocation: { latitude: number; longitude: number } | null;
+    userLocation: { latitude: number; longitude: number } | null;
+    hass: any;
+    person: PersonConfig;
+}
+
 function isSensorCondition(c: DisplayCondition): c is SensorCondition {
     return c != null && 'sensor' in c && !('type' in c);
 }
@@ -107,12 +115,27 @@ function matchesUser(hass: any, person: PersonConfig, expected: unknown, compara
     return matched;
 }
 
-function resolveSensorValue(hass: any, person: PersonConfig, currentUserLocation: { latitude: number; longitude: number } | null, sensorKey: string, attribute?: string): number | string {
+function resolveSensorValue(hass: any, person: PersonConfig, currentUserLocation: { latitude: number; longitude: number } | null, sensorKey: string, attribute?: string, condition?: SensorCondition): number | string {
     if (sensorKey === 'distance') {
         if (!currentUserLocation) return Infinity;
         const personLocation = getLocation(hass, person.entity_id);
         if (!personLocation) return Infinity;
         return haversine(currentUserLocation.latitude, currentUserLocation.longitude, personLocation.latitude, personLocation.longitude);
+    }
+
+    if (sensorKey === 'distance_from_person') {
+        if (!condition?.target_person) return Infinity;
+        const fromLocation = getLocation(hass, person.entity_id);
+        const toLocation = getLocation(hass, condition.target_person);
+        if (!fromLocation || !toLocation) return Infinity;
+        return haversine(fromLocation.latitude, fromLocation.longitude, toLocation.latitude, toLocation.longitude);
+    }
+
+    if (sensorKey === 'distance_from_zone') {
+        if (!condition?.zone) return Infinity;
+        const personLocation = getLocation(hass, person.entity_id);
+        if (!personLocation) return Infinity;
+        return haversine(personLocation.latitude, personLocation.longitude, condition.zone.lat, condition.zone.lon);
     }
 
     if (sensorKey === 'state') {
@@ -186,7 +209,7 @@ function evaluateSensorCondition(hass: any, person: PersonConfig, currentUserLoc
         return Math.random() < probability;
     }
 
-    const sensorValue = resolveSensorValue(hass, person, currentUserLocation, sensor, attribute);
+    const sensorValue = resolveSensorValue(hass, person, currentUserLocation, sensor, attribute, condition);
     return matchesComparator(sensorValue, comparator, value);
 }
 
@@ -242,6 +265,71 @@ export function extractDistanceThreshold(conditions: DisplayCondition[]): number
         }
     }
     return null;
+}
+
+function resolveTrailPointSensorValue(ctx: TrailPointContext, sensorKey: string, condition?: SensorCondition): number | string {
+    if (sensorKey === 'distance_from_user') {
+        if (!ctx.userLocation) return Infinity;
+        return haversine(ctx.userLocation.latitude, ctx.userLocation.longitude, ctx.point.lat, ctx.point.lon);
+    }
+
+    if (sensorKey === 'distance_from_person') {
+        if (!ctx.personLocation) return Infinity;
+        return haversine(ctx.personLocation.latitude, ctx.personLocation.longitude, ctx.point.lat, ctx.point.lon);
+    }
+
+    if (sensorKey === 'distance_from_zone') {
+        if (!condition?.zone) return Infinity;
+        return haversine(condition.zone.lat, condition.zone.lon, ctx.point.lat, ctx.point.lon);
+    }
+
+    return resolveSensorValue(ctx.hass, ctx.person, ctx.userLocation, sensorKey, condition?.attribute, condition);
+}
+
+function evaluateTrailPointSensorCondition(ctx: TrailPointContext, condition: SensorCondition): boolean {
+    const { sensor, comparator, value, attribute } = condition;
+
+    if (sensor === 'when') return matchesWhen(value);
+    if (sensor === 'who') return matchesWho(ctx.hass, ctx.person, value, comparator);
+    if (sensor === 'user') return matchesUser(ctx.hass, ctx.person, value, comparator);
+    if (sensor === 'random') {
+        const probability = Number(value) > 1 ? Number(value) / 100 : Number(value);
+        return Math.random() < probability;
+    }
+
+    const sensorValue = resolveTrailPointSensorValue(ctx, sensor, condition);
+    return matchesComparator(sensorValue, comparator, value);
+}
+
+function evaluateTrailPointCondition(ctx: TrailPointContext, condition: DisplayCondition, defaultConditions?: DisplayCondition[]): boolean {
+    if (isGroupCondition(condition)) {
+        if (condition.type === 'AND') return condition.conditions.every(c => evaluateTrailPointCondition(ctx, c, defaultConditions));
+        if (condition.type === 'OR') return condition.conditions.some(c => evaluateTrailPointCondition(ctx, c, defaultConditions));
+        return false;
+    }
+    if (isNotCondition(condition)) {
+        return !evaluateTrailPointCondition(ctx, condition.condition, defaultConditions);
+    }
+    if (isDefaultCondition(condition)) {
+        if (!defaultConditions || defaultConditions.length === 0) return true;
+        return defaultConditions.every(c => evaluateTrailPointCondition(ctx, c, defaultConditions));
+    }
+    if (isSensorCondition(condition)) {
+        return evaluateTrailPointSensorCondition(ctx, condition);
+    }
+    return false;
+}
+
+export function evaluateTrailPointConditions(
+    ctx: TrailPointContext,
+    conditions: DisplayCondition | DisplayCondition[],
+    defaultConditions?: DisplayCondition[]
+): boolean {
+    if (Array.isArray(conditions)) {
+        if (conditions.length === 0) return true;
+        return conditions.every(c => evaluateTrailPointCondition(ctx, c, defaultConditions));
+    }
+    return evaluateTrailPointCondition(ctx, conditions, defaultConditions);
 }
 
 export { isSensorCondition, isGroupCondition, isNotCondition, isDefaultCondition };
