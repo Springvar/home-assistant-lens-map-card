@@ -26,7 +26,7 @@ This card is available through HACS. Add this repository as a custom repository 
 
 ### Manual
 
-1. Download `home-assistant-whereabouts-map-card.js` from the [releases](https://github.com/anomalyco/home-assistant-whereabouts-map-card/releases)
+1. Download `home-assistant-whereabouts-map-card.js` from the [releases](https://github.com/Springvar/home-assistant-whereabouts-map-card/releases)
 2. Place it in your `www` folder
 3. Reference it in your Lovelace configuration
 

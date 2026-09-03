@@ -1,6 +1,6 @@
 {
   "name": "home-assistant-whereabouts-map-card",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Home Assistant Lovelace card to display persons on a map based on configurable display rules",
   "main": "dist/home-assistant-whereabouts-map-card.js",
@@ -15,7 +15,7 @@
   "author": "",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git@github.com:Springvar/home-assistant-whereabouts-map-card.git"
   },
   "license": "MIT",
   "devDependencies": {
