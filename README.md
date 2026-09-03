@@ -1,6 +1,8 @@
-# Lens Map Card
+# Whereabouts Map Card
 
-A Home Assistant Lovelace card to display persons on a map based on configurable display rules.
+A Home Assistant Lovelace card to display persons on a map based on configurable display rules. This is a companion card to the **whereabouts-card**.
+
+> **Renamed:** this card was previously published as **Lens Map Card** / `custom:lens-map-card`. It is now registered as `custom:whereabouts-map-card`. Existing dashboards using `custom:lens-map-card` keep working via a backwards-compatible alias.
 
 ## Features
 
@@ -24,7 +26,7 @@ This card is available through HACS. Add this repository as a custom repository 
 
 ### Manual
 
-1. Download `home-assistant-lens-map-card.js` from the [releases](https://github.com/anomalyco/home-assistant-lens-map-card/releases)
+1. Download `home-assistant-whereabouts-map-card.js` from the [releases](https://github.com/anomalyco/home-assistant-whereabouts-map-card/releases)
 2. Place it in your `www` folder
 3. Reference it in your Lovelace configuration
 
@@ -33,8 +35,8 @@ This card is available through HACS. Add this repository as a custom repository 
 ### Basic Example
 
 ```yaml
-type: custom:lens-map-card
-title: Lens Map
+type: custom:whereabouts-map-card
+title: Whereabouts Map
 persons:
   - entity_id: person.user1
   - entity_id: person.user2
@@ -51,7 +53,7 @@ zoom:
 ### Full Configuration
 
 ```yaml
-type: custom:lens-map-card
+type: custom:whereabouts-map-card
 title: Family Map
 show_title: true
 persons:
@@ -104,8 +106,8 @@ show_toggle_buttons: true
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `type` | string | Required | `custom:lens-map-card` |
-| `title` | string | `'Lens Map'` | Card title |
+| `type` | string | Required | `custom:whereabouts-map-card` |
+| `title` | string | `'Whereabouts Map'` | Card title |
 | `show_title` | boolean | `true` | Whether to show the title |
 | `persons` | array | `[]` | List of persons to display |
 | `current_user` | string | auto-detected | Entity ID of the current user (used as reference for distance calculations; auto-detected from `hass.user.id` if not set) |
@@ -142,25 +144,34 @@ show_toggle_buttons: true
 
 | Option | Type | Default | Description |
 |--------|------|--------|-------------|
-| `type` | string | `'color'` | Map tile style |
+| `type` | string | `'color'` | Map tile style (`none`, `system`, or a provider below) |
+| `light` | string | `'color'` | Map used for **light themes** when `type: system` |
+| `dark` | string | `'dark'` | Map used for **dark themes** when `type: system` |
 | `opacity` | number | `1` | Map layer opacity (0-1) |
-| `api_key` | string | | API key for tile providers (Stadia Maps) |
+| `api_key` | string | | API key for keyed providers (CARTO/Stadia) |
+| `light_api_key` | string | | API key for the `light` theme map when `type: system` |
+| `dark_api_key` | string | | API key for the `dark` theme map when `type: system` |
 | `interactive` | boolean | `true` | Enable map interactivity (zoom, pan, scroll) |
 
 ### Map Types
 
+Keyless providers work out of the box; keyed providers require a **per-user API key**
+(no shared key is shipped — each user creates their own and enters it in the card editor).
+
 | Value | Description |
 |-------|-------------|
 | `none` | No tile layer |
-| `system` | Auto-detect dark/light based on Home Assistant theme |
-| `bw` | Black & White (Stadia Toner, requires API key) |
-| `light` | Light (CartoDB) |
-| `color` | Color (OpenStreetMap) |
-| `dark` | Dark (CartoDB) |
-| `voyager` | Voyager (CartoDB) |
-| `satellite` | Satellite (Esri) |
-| `topo` | Topographic (OpenTopoMap) |
-| `outlines` | Outlines only (Stadia Toner Lines, requires API key) |
+| `system` | Auto-detect dark/light based on Home Assistant theme — optionally pick a different map per theme via `light`/`dark` |
+| `color` | Color (OpenStreetMap) — no key |
+| `satellite` | Satellite (Esri) — no key |
+| `topo` | Topographic (OpenTopoMap) — no key |
+| `light` | Light (CARTO) — requires a [CARTO key](https://carto.com/basemaps/apikey) |
+| `dark` | Dark (CARTO) — requires a [CARTO key](https://carto.com/basemaps/apikey) |
+| `voyager` | Voyager (CARTO) — requires a [CARTO key](https://carto.com/basemaps/apikey) |
+| `bw` | Black & White (Stadia Toner) — requires a [Stadia key](https://stadiamaps.com/) |
+| `outlines` | Outlines only (Stadia Toner Lines) — requires a [Stadia key](https://stadiamaps.com/) |
+
+CARTO keys are appended as `?key=`, Stadia keys as `?api_key=`.
 
 ### Zoom Options
 

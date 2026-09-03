@@ -1,9 +1,9 @@
 {
-  "name": "home-assistant-lens-map-card",
+  "name": "home-assistant-whereabouts-map-card",
   "version": "0.1.0",
   "type": "module",
   "description": "Home Assistant Lovelace card to display persons on a map based on configurable display rules",
-  "main": "dist/home-assistant-lens-map-card.js",
+  "main": "dist/home-assistant-whereabouts-map-card.js",
   "scripts": {
     "build": "rollup -c",
     "build:watch": "rollup -c -w",

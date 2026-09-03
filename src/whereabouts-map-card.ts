@@ -1,12 +1,13 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
-import './lens-map-card-editor';
-import type { LensMapCardEditor } from './lens-map-card-editor';
-import type { PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig, DisplayCondition } from './types';
+import './whereabouts-map-card-editor';
+import type { WhereaboutsMapCardEditor } from './whereabouts-map-card-editor';
+import type { PersonConfig, DisplayRule, MapConfig, MapType, ZoomConfig, CenterConfig, DisplayCondition } from './types';
 import { TrailConfig, TRAIL_COLORS, migrateDisplayRules, migrateTrailConfig } from './types';
 import { evaluateConditions, extractDistanceThreshold, evaluateTrailPointConditions, type TrailPointContext } from './condition-evaluator';
+import { getTileProvider, buildTileUrl } from './tileProviders';
 
-export interface LensMapCardConfig {
+export interface WhereaboutsMapCardConfig {
     persons: PersonConfig[];
     current_user?: string;
     display_rules?: DisplayRule[];
@@ -21,9 +22,7 @@ export interface LensMapCardConfig {
     show_toggle_buttons?: boolean;
 }
 
-const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);
-
-function getEntityState(hass: any, entityId: string): string {
+const VALID_MAPS = new Set(['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines']);function getEntityState(hass: any, entityId: string): string {
     return hass?.states[entityId]?.state || 'unavailable';
 }
 
@@ -73,7 +72,7 @@ function evaluateRule(rule: DisplayRule, sensorValue: number | string): boolean 
     }
 }
 
-class LensMapCard extends LitElement {
+class WhereaboutsMapCard extends LitElement {
     @property({ type: Array }) declare persons: PersonConfig[];
     @property({ type: String }) declare current_user: string;
     @property({ type: Array }) declare display_rules: DisplayRule[];
@@ -110,15 +109,15 @@ class LensMapCard extends LitElement {
         return this._autoZoomMode === 'zoom_out';
     }
 
-    static async getConfigElement(config: LensMapCardConfig) {
-        await import('./lens-map-card-editor');
-        const el = document.createElement('lens-map-card-editor') as LensMapCardEditor;
+    static async getConfigElement(config: WhereaboutsMapCardConfig) {
+        await import('./whereabouts-map-card-editor');
+        const el = document.createElement('whereabouts-map-card-editor') as WhereaboutsMapCardEditor;
         el.setConfig(config);
         return el;
     }
 
-    static getConfigElementStatic(config: LensMapCardConfig) {
-        const el = document.createElement('lens-map-card-editor') as LensMapCardEditor;
+    static getConfigElementStatic(config: WhereaboutsMapCardConfig) {
+        const el = document.createElement('whereabouts-map-card-editor') as WhereaboutsMapCardEditor;
         el.setConfig(config);
         return el;
     }
@@ -132,7 +131,7 @@ class LensMapCard extends LitElement {
             zoom: { level: 10 },
             center: { type: 'user' },
             trail: { enabled: false, max_age: 60 },
-            title: 'Lens Map',
+            title: 'Whereabouts Map',
             show_title: true,
             show_auto_zoom: true,
             show_toggle_buttons: true
@@ -204,7 +203,7 @@ class LensMapCard extends LitElement {
         this._scheduleMapInit();
     }
 
-    setConfig(config: LensMapCardConfig) {
+    setConfig(config: WhereaboutsMapCardConfig) {
         config = config || {};
 
         const migratedPersons = (config.persons || []).map(p => {
@@ -233,7 +232,7 @@ class LensMapCard extends LitElement {
         this.zoom = config.zoom || { level: 10, auto_level: false };
         this.center = config.center || { type: 'user' };
         this.trail = migrateTrailConfig(config.trail || { enabled: false, max_age: 60 });
-        this.title = config.title || 'Lens Map';
+        this.title = config.title || 'Whereabouts Map';
         this.show_title = config.show_title !== false;
         this.show_auto_zoom = config.show_auto_zoom !== false;
         this.show_toggle_buttons = config.show_toggle_buttons !== false;
@@ -270,7 +269,7 @@ class LensMapCard extends LitElement {
             };
             script.onerror = () => {
                 script.remove();
-                console.error('[LensMap] Leaflet script load failed');
+                console.error('[WhereaboutsMap] Leaflet script load failed');
             };
             document.head.appendChild(script);
         } else {
@@ -441,13 +440,13 @@ class LensMapCard extends LitElement {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const result: any[][] = await resp.json();
 
-            console.log('[LensMap] history response entities:', result.length, 'trackers queried:', allDeviceTrackers);
+            console.log('[WhereaboutsMap] history response entities:', result.length, 'trackers queried:', allDeviceTrackers);
             for (const states of result) {
                 if (states.length === 0) continue;
                 const eid = states[0].entity_id;
                 const withLat = states.filter((s: any) => typeof s.attributes?.latitude === 'number').length;
                 const withLon = states.filter((s: any) => typeof s.attributes?.longitude === 'number').length;
-                console.log('[LensMap] history for', eid, '- records:', states.length, 'withLat:', withLat, 'withLon:', withLon);
+                console.log('[WhereaboutsMap] history for', eid, '- records:', states.length, 'withLat:', withLat, 'withLon:', withLon);
             }
 
             const trackerStates = new Map<string, any[]>();
@@ -489,7 +488,7 @@ class LensMapCard extends LitElement {
                 }
             }
         } catch (e) {
-            console.error('[LensMap] Failed to fetch trail history:', e);
+            console.error('[WhereaboutsMap] Failed to fetch trail history:', e);
         }
 
         this._fetchingHistory = false;
@@ -663,7 +662,7 @@ class LensMapCard extends LitElement {
                         this._leafletMap.invalidateSize({ pan: false });
                     }
                 } catch (e) {
-                    console.error('[LensMap] invalidateSize error:', e);
+                    console.error('[WhereaboutsMap] invalidateSize error:', e);
                 }
             });
         });
@@ -765,45 +764,54 @@ class LensMapCard extends LitElement {
         return { lat: avgLat, lon: avgLon };
     }
 
+    private _isDarkTheme(): boolean {
+        try {
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const haDark = window.parent?.document?.body?.classList.contains('dark');
+            return !!(haDark || prefersDark);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Resolve the effective map provider id and api key for the current theme.
+     * Handles the special 'system' value (per-theme `light`/`dark` maps with
+     * their own keys) and falls back to the shared `api_key` for regular maps.
+     */
+    private _resolveMapId(): { id: string; apiKey?: string } | null {
+        if (!this.map) return null;
+        const type = this.map.type || 'color';
+        if (type === 'none') return null;
+
+        if (type === 'system') {
+            const dark = this._isDarkTheme();
+            const resolved = dark
+                ? (this.map.dark || 'dark')
+                : (this.map.light || 'color');
+            const apiKey = dark ? this.map.dark_api_key : this.map.light_api_key;
+            return { id: resolved, apiKey };
+        }
+
+        return { id: type, apiKey: this.map.api_key };
+    }
+
     private _addTileLayer() {
         if (!this._leafletMap || !this.map) return;
-        if (this.map.type === 'none') return;
 
-        const type = this.map.type || 'color';
-        const TILE_LAYERS: Record<string, [string, any]> = {
-            bw: ['https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png', { attribution: 'Map tiles by Stamen Design, CC BY 3.0' }],
-            light: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
-            color: ['https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', subdomains: ['a', 'b', 'c'] }],
-            dark: ['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
-            voyager: ['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', { attribution: '&copy; CartoDB, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c', 'd'] }],
-            satellite: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '&copy; Esri, Maxar, Earthstar Geographics' }],
-            topo: ['https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenTopoMap, &copy; OpenStreetMap', subdomains: ['a', 'b', 'c'] }],
-            outlines: ['https://tiles.stadiamaps.com/tiles/stamen_toner_lines/{z}/{x}/{y}.png', { attribution: 'Map tiles by Stamen Design, hosted by Stadia Maps' }],
-            system: ['', {}]
-        };
+        const resolved = this._resolveMapId();
+        if (!resolved) return;
 
-        let resolvedType = type;
-        if (type === 'system') {
-            try {
-                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const haDark = window.parent?.document?.body?.classList.contains('dark');
-                resolvedType = haDark || prefersDark ? 'dark' : 'color';
-            } catch {
-                resolvedType = 'color';
-            }
-        }
+        const provider = getTileProvider(resolved.id);
+        if (!provider) return;
 
-        const config = TILE_LAYERS[resolvedType];
-        if (!config) return;
-        const [url, opts] = config;
-        let tileLayer: any;
-        if (url && this.map.api_key) {
-            tileLayer = window.L.tileLayer(url + '?api_key=' + this.map.api_key, opts);
-        } else if (url) {
-            tileLayer = window.L.tileLayer(url, opts);
-        } else {
-            return;
-        }
+        const url = buildTileUrl(resolved.id, resolved.apiKey);
+        if (!url) return;
+
+        const tileLayer = window.L.tileLayer(url, {
+            attribution: provider.attribution,
+            subdomains: provider.subdomains
+        });
         if (this.map.opacity != null) {
             tileLayer.setOpacity(this.map.opacity);
         }
@@ -1064,13 +1072,18 @@ class LensMapCard extends LitElement {
     `;
 }
 
-customElements.define('lens-map-card', LensMapCard);
+customElements.define('whereabouts-map-card', WhereaboutsMapCard);
+try {
+    customElements.define('lens-map-card', WhereaboutsMapCard);
+} catch {
+    /* 'lens-map-card' may already be registered by an older copy of this card */
+}
 
 if (typeof window !== 'undefined') {
     (window as any).customCards = (window as any).customCards || [];
     (window as any).customCards.push({
-        type: 'lens-map-card',
-        name: 'Lens Map Card',
+        type: 'whereabouts-map-card',
+        name: 'Whereabouts Map Card',
         preview: true,
         description: 'A map card showing persons based on configurable display rules.'
     });

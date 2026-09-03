@@ -1,5 +1,5 @@
-type: custom:lens-map-card
-title: Lens Map
+type: custom:whereabouts-map-card
+title: Whereabouts Map
 show_title: true
 current_user: person.john_doe
 persons:

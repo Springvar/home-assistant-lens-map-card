@@ -1,5 +1,5 @@
 {
-  "name": "Lens Map Card",
-  "filename": "home-assistant-lens-map-card.js",
+  "name": "Whereabouts Map Card",
+  "filename": "home-assistant-whereabouts-map-card.js",
   "description": "A Home Assistant Lovelace card to display persons on a map based on configurable display rules."
 }

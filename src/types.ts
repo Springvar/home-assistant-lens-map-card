@@ -59,10 +59,22 @@ export interface PersonConfig {
     showOnMap?: boolean;
 }
 
+/** A concrete, selectable map provider (excludes the special 'none'/'system' values). */
+export type MapType = 'bw' | 'light' | 'color' | 'dark' | 'voyager' | 'satellite' | 'topo' | 'outlines';
+
 export interface MapConfig {
-    type?: 'none' | 'system' | 'bw' | 'light' | 'color' | 'dark' | 'voyager' | 'satellite' | 'topo' | 'outlines';
+    type?: 'none' | 'system' | MapType;
+    /**
+     * Per-theme overrides used when `type === 'system'`.
+     * `light` (default `color`) and `dark` (default `dark`) pick which map is
+     * shown for each theme, each able to carry its own API key.
+     */
+    light?: MapType;
+    dark?: MapType;
     opacity?: number;
     api_key?: string;
+    light_api_key?: string;
+    dark_api_key?: string;
     interactive?: boolean;
 }
 

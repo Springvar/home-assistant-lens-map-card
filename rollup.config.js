@@ -3,9 +3,9 @@ import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
 
 export default {
-    input: 'src/lens-map-card.ts',
+    input: 'src/whereabouts-map-card.ts',
     output: {
-        file: 'dist/home-assistant-lens-map-card.js',
+        file: 'dist/home-assistant-whereabouts-map-card.js',
         format: 'es',
         sourcemap: false
     },

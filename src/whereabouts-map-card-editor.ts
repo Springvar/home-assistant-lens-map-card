@@ -1,12 +1,12 @@
 import { LitElement, html, css } from 'lit';
 import { property, state } from 'lit/decorators.js';
-import { LensMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './lens-map-card';
-import { TRAIL_COLORS, migrateDisplayRules, migrateTrailConfig } from './types';
+import { WhereaboutsMapCardConfig, PersonConfig, DisplayRule, MapConfig, ZoomConfig, CenterConfig } from './whereabouts-map-card';
+import { TRAIL_COLORS, migrateDisplayRules, migrateTrailConfig, type MapType } from './types';
 import type { PersonSensors, TrailConfig, DisplayCondition, SensorCondition, GroupCondition, NotCondition, DefaultCondition, ConditionComparator } from './types';
 import { isSensorCondition, isGroupCondition, isNotCondition, isDefaultCondition } from './condition-evaluator';
 import { BUILT_IN_SENSORS } from './types';
+import { TILE_PROVIDERS, requiresApiKey, getTileProvider } from './tileProviders';
 
-const VALID_MAPS = ['none', 'system', 'bw', 'light', 'color', 'dark', 'voyager', 'satellite', 'topo', 'outlines'];
 const VALID_ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 const WHEN_OPTIONS = ['night', 'morning', 'afternoon', 'evening', 'weekday', 'weekend'];
@@ -29,9 +29,9 @@ const TEXT_COMPARATORS: { value: ConditionComparator; label: string }[] = [
 
 type ConditionContext = 'default' | `person:${number}`;
 
-export class LensMapCardEditor extends LitElement {
+export class WhereaboutsMapCardEditor extends LitElement {
     @property({ attribute: false }) public hass: any;
-    @state() private _config: LensMapCardConfig = { persons: [] };
+    @state() private _config: WhereaboutsMapCardConfig = { persons: [] };
 
     get availablePersons(): string[] {
         if (!this.hass) return [];
@@ -57,7 +57,7 @@ export class LensMapCardEditor extends LitElement {
             .sort();
     }
 
-    setConfig(config: LensMapCardConfig) {
+    setConfig(config: WhereaboutsMapCardConfig) {
         const safeConfig = config || { persons: [] };
         this._config = {
             ...safeConfig,
@@ -980,6 +980,81 @@ export class LensMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _mapThemeTypeChanged(theme: 'light' | 'dark', e: Event) {
+        const value = (e.target as HTMLSelectElement).value as MapType;
+        this._config = { ...this._config, map: { ...this._config.map, [theme]: value } };
+        this._emitConfigChanged();
+    }
+
+    private _mapThemeKeyChanged(theme: 'light' | 'dark', e: Event) {
+        const value = (e.target as HTMLInputElement).value;
+        this._config = { ...this._config, map: { ...this._config.map, [`${theme}_api_key`]: value } };
+        this._emitConfigChanged();
+    }
+
+    private _themeMapOptionsHtml(selected: MapType) {
+        const keyless = TILE_PROVIDERS.filter(p => p.group === 'keyless');
+        const keyed = TILE_PROVIDERS.filter(p => p.group === 'keyed');
+        const renderOption = (id: string, label: string, keyed: boolean) => html`
+            <option value=${id} ?selected="${selected === id}">${label}${keyed ? ' (requires API key)' : ''}</option>`;
+        return html`
+            <optgroup label="No key required">
+                ${keyless.map(p => renderOption(p.id, p.label, false))}
+            </optgroup>
+            <optgroup label="Requires API key">
+                ${keyed.map(p => renderOption(p.id, p.label, true))}
+            </optgroup>`;
+    }
+
+    private _mainMapOptionsHtml() {
+        const selected = this._config.map?.type || 'color';
+        const keyless = TILE_PROVIDERS.filter(p => p.group === 'keyless');
+        const keyed = TILE_PROVIDERS.filter(p => p.group === 'keyed');
+        const renderOption = (id: string, label: string, keyed: boolean) => html`
+            <option value=${id} ?selected="${selected === id}">${label}${keyed ? ' (requires API key)' : ''}</option>`;
+        return html`
+            <option value="none" ?selected="${selected === 'none'}">None</option>
+            <option value="system" ?selected="${selected === 'system'}">System (auto dark/light)</option>
+            <optgroup label="No key required">
+                ${keyless.map(p => renderOption(p.id, p.label, false))}
+            </optgroup>
+            <optgroup label="Requires API key">
+                ${keyed.map(p => renderOption(p.id, p.label, true))}
+            </optgroup>`;
+    }
+
+    private _apiKeyHelpHtml(mapId?: string) {
+        if (!mapId) return '';
+        const provider = getTileProvider(mapId);
+        if (!provider?.helpUrl) return '';
+        return html`
+            <div style="font-size: 0.85em; color: #b33; margin-top: 0.2em;">
+                ${provider.helpLead ? provider.helpLead + ' ' : ''}
+                <a href=${provider.helpUrl} target="_blank" rel="noopener noreferrer">${provider.helpLinkLabel}</a>.
+            </div>`;
+    }
+
+    private _themeApiKeyRowHtml(theme: 'light' | 'dark') {
+        const mapId = theme === 'light'
+            ? (this._config.map?.light || 'color')
+            : (this._config.map?.dark || 'dark');
+        const key = theme === 'light'
+            ? this._config.map?.light_api_key
+            : this._config.map?.dark_api_key;
+        return html`
+            <div>
+                <label><strong>${theme === 'light' ? 'Light' : 'Dark'} Theme Map:</strong></label>
+                <select .value=${mapId} @change=${(e: Event) => this._mapThemeTypeChanged(theme, e)}>
+                    ${this._themeMapOptionsHtml(mapId)}
+                </select>
+            </div>
+            <div>
+                <label><strong>${theme === 'light' ? 'Light' : 'Dark'} API Key${requiresApiKey(mapId) ? '' : ' (optional)'}:</strong></label>
+                <input type="text" .value=${key || ''} @input=${(e: Event) => this._mapThemeKeyChanged(theme, e)} placeholder="API key for this theme's map" style="width: 200px;" />
+                ${requiresApiKey(mapId) ? this._apiKeyHelpHtml(mapId) : ''}
+            </div>`;
+    }
+
     private _zoomLevelChanged(e: Event) {
         const value = parseInt((e.target as HTMLSelectElement).value);
         this._config = { ...this._config, zoom: { ...this._config.zoom, level: value } };
@@ -1503,25 +1578,20 @@ export class LensMapCardEditor extends LitElement {
                         <div>
                         <label>Map type:</label>
                              <select .value=${this._config.map?.type || 'color'} @change=${this._mapTypeChanged}>
-                                 <option value="none">None</option>
-                                 <option value="system">System (auto dark/light)</option>
-                                 <option value="bw">Black & White (Stadia, requires API key)</option>
-                                 <option value="light">Light (CartoDB)</option>
-                                 <option value="color">Color (OSM)</option>
-                                 <option value="dark">Dark (CartoDB)</option>
-                                 <option value="voyager">Voyager (CartoDB)</option>
-                                 <option value="satellite">Satellite (Esri)</option>
-                                 <option value="topo">Topographic (OpenTopoMap)</option>
-                                 <option value="outlines">Outlines (Stadia, requires API key)</option>
+                                 ${this._mainMapOptionsHtml()}
                              </select>
                         </div>
+                        ${this._config.map?.type === 'system'
+                            ? html`${this._themeApiKeyRowHtml('light')}${this._themeApiKeyRowHtml('dark')}`
+                            : html`
+                                <div>
+                                    <label>API Key${requiresApiKey(this._config.map?.type) ? '' : ' (optional)'}:</label>
+                                    <input type="text" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="API key for this map" style="width: 200px;" />
+                                    ${requiresApiKey(this._config.map?.type) ? this._apiKeyHelpHtml(this._config.map?.type) : ''}
+                                </div>`}
                         <div>
                             <label>Opacity:</label>
                             <input type="number" .value=${this._config.map?.opacity ?? 1} min="0" max="1" step="0.1" @input=${this._mapOpacityChanged} style="width: 60px;" />
-                        </div>
-                        <div>
-                            <label>API Key (optional):</label>
-                            <input type="text" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="For Stadia Maps" style="width: 200px;" />
                         </div>
                     </div>
                 </details>
@@ -1608,7 +1678,7 @@ export class LensMapCardEditor extends LitElement {
                                 <input type="checkbox" .checked=${this._config.show_title !== false} @change=${this._showTitleChanged} />
                                 Show title
                             </label>
-                            <input type="text" .value=${this._config.title || 'Lens Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} style="margin-left: 1em; width: 200px;" />
+                            <input type="text" .value=${this._config.title || 'Whereabouts Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} style="margin-left: 1em; width: 200px;" />
                         </div>
                         <div>
                             <label>
@@ -1824,4 +1894,4 @@ export class LensMapCardEditor extends LitElement {
     `;
 }
 
-customElements.define('lens-map-card-editor', LensMapCardEditor);
+customElements.define('whereabouts-map-card-editor', WhereaboutsMapCardEditor);

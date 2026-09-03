@@ -3,15 +3,15 @@ import { defineConfig } from 'vite';
 export default defineConfig({
     build: {
         lib: {
-            entry: 'src/lens-map-card.ts',
+            entry: 'src/whereabouts-map-card.ts',
             formats: ['es'],
-            fileName: 'home-assistant-lens-map-card'
+            fileName: 'home-assistant-whereabouts-map-card'
         },
         outDir: 'dist',
         rollupOptions: {
             external: [],
             output: {
-                entryFileNames: 'home-assistant-lens-map-card.js',
+                entryFileNames: 'home-assistant-whereabouts-map-card.js',
                 inlineDynamicImports: true
             }
         },
