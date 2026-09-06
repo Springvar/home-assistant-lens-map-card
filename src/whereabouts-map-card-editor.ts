@@ -32,6 +32,9 @@ type ConditionContext = 'default' | `person:${number}`;
 export class WhereaboutsMapCardEditor extends LitElement {
     @property({ attribute: false }) public hass: any;
     @state() private _config: WhereaboutsMapCardConfig = { persons: [] };
+    private _openSections: Set<string> = new Set(['persons']);
+    private _openPersons: Set<number> = new Set();
+    private _personsInitialized = false;
 
     get availablePersons(): string[] {
         if (!this.hass) return [];
@@ -77,7 +80,35 @@ export class WhereaboutsMapCardEditor extends LitElement {
             }
         }
 
+        // Synchronize open-state for persons with the current config, preserving
+        // any user toggles for persons that already existed.
+        if (!this._personsInitialized) {
+            const personCount = (this._config.persons || []).length;
+            for (let i = 0; i < personCount; i++) {
+                this._openPersons.add(i);
+            }
+            this._personsInitialized = true;
+        }
+
         this.requestUpdate();
+    }
+
+    private _sectionToggleHandler(id: string, e: Event) {
+        const details = e.currentTarget as HTMLDetailsElement;
+        if (details.open) {
+            this._openSections.add(id);
+        } else {
+            this._openSections.delete(id);
+        }
+    }
+
+    private _personToggleHandler(idx: number, e: Event) {
+        const details = e.currentTarget as HTMLDetailsElement;
+        if (details.open) {
+            this._openPersons.add(idx);
+        } else {
+            this._openPersons.delete(idx);
+        }
     }
 
     private _getConditions(context: ConditionContext): DisplayCondition[] {
@@ -514,10 +545,10 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         ${condition.conditions.map((child, i) => this._renderCondition(child, `${path}:${i}`, context, true))}
                     </div>
                     <div class="add-condition-buttons">
-                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { sensor: 'distance', comparator: 'lt', value: '1000' })}>+ Value</button>
-                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
-                        <button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } })}>+ NOT</button>
-                        ${context !== 'default' ? html`<button class="btn-small" @click=${() => this._addConditionToPath(path, { type: 'DEFAULT' } as DefaultCondition)}>+ Default</button>` : ''}
+                        <button class="small-button add-button" @click=${() => this._addConditionToPath(path, { sensor: 'distance', comparator: 'lt', value: '1000' })}>+ Value</button>
+                        <button class="small-button add-button" @click=${() => this._addConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
+                        <button class="small-button add-button" @click=${() => this._addConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } })}>+ NOT</button>
+                        ${context !== 'default' ? html`<button class="small-button add-button" @click=${() => this._addConditionToPath(path, { type: 'DEFAULT' } as DefaultCondition)}>+ Default</button>` : ''}
                     </div>
                 </div>
             </details>`;
@@ -837,9 +868,9 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         ${condition.conditions.map((child, i) => this._renderTrailCondition(child, `${path}:${i}`, context, true))}
                     </div>
                     <div class="add-condition-buttons">
-                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { sensor: 'distance_from_user', comparator: 'lte', value: '1000' })}>+ Value</button>
-                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
-                        <button class="btn-small" @click=${() => this._addTrailConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } })}>+ NOT</button>
+                        <button class="small-button add-button" @click=${() => this._addTrailConditionToPath(path, { sensor: 'distance_from_user', comparator: 'lte', value: '1000' })}>+ Value</button>
+                        <button class="small-button add-button" @click=${() => this._addTrailConditionToPath(path, { type: 'AND', conditions: [] })}>+ Group</button>
+                        <button class="small-button add-button" @click=${() => this._addTrailConditionToPath(path, { type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } })}>+ NOT</button>
                     </div>
                 </div>
             </details>`;
@@ -870,10 +901,12 @@ export class WhereaboutsMapCardEditor extends LitElement {
             entity_id: entityId,
         };
 
+        const newIdx = (this._config.persons || []).length;
         this._config = {
             ...this._config,
             persons: [...(this._config.persons || []), newPerson]
         };
+        this._openPersons.add(newIdx);
         select.value = '';
         this._emitConfigChanged();
     }
@@ -882,6 +915,12 @@ export class WhereaboutsMapCardEditor extends LitElement {
         const persons = [...(this._config.persons || [])];
         persons.splice(idx, 1);
         this._config = { ...this._config, persons };
+        const shifted = new Set<number>();
+        for (const i of this._openPersons) {
+            if (i === idx) continue;
+            shifted.add(i > idx ? i - 1 : i);
+        }
+        this._openPersons = shifted;
         this._emitConfigChanged();
     }
 
@@ -1028,7 +1067,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
         const provider = getTileProvider(mapId);
         if (!provider?.helpUrl) return '';
         return html`
-            <div style="font-size: 0.85em; color: #b33; margin-top: 0.2em;">
+            <div class="help-text">
                 ${provider.helpLead ? provider.helpLead + ' ' : ''}
                 <a href=${provider.helpUrl} target="_blank" rel="noopener noreferrer">${provider.helpLinkLabel}</a>.
             </div>`;
@@ -1042,17 +1081,22 @@ export class WhereaboutsMapCardEditor extends LitElement {
             ? this._config.map?.light_api_key
             : this._config.map?.dark_api_key;
         return html`
-            <div>
-                <label><strong>${theme === 'light' ? 'Light' : 'Dark'} Theme Map:</strong></label>
-                <select .value=${mapId} @change=${(e: Event) => this._mapThemeTypeChanged(theme, e)}>
-                    ${this._themeMapOptionsHtml(mapId)}
-                </select>
-            </div>
-            <div>
-                <label><strong>${theme === 'light' ? 'Light' : 'Dark'} API Key${requiresApiKey(mapId) ? '' : ' (optional)'}:</strong></label>
-                <input type="text" .value=${key || ''} @input=${(e: Event) => this._mapThemeKeyChanged(theme, e)} placeholder="API key for this theme's map" style="width: 200px;" />
-                ${requiresApiKey(mapId) ? this._apiKeyHelpHtml(mapId) : ''}
-            </div>`;
+            <fieldset class="subsection">
+                <legend>${theme === 'light' ? 'Light' : 'Dark'} Theme</legend>
+                <div class="form-row">
+                    <label>Map:</label>
+                    <select .value=${mapId} @change=${(e: Event) => this._mapThemeTypeChanged(theme, e)}>
+                        ${this._themeMapOptionsHtml(mapId)}
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>API Key${requiresApiKey(mapId) ? '' : ' (optional)'}:</label>
+                    <div class="input-with-help">
+                        <input type="text" class="full-width" .value=${key || ''} @input=${(e: Event) => this._mapThemeKeyChanged(theme, e)} placeholder="Paste your API key" />
+                        ${requiresApiKey(mapId) ? this._apiKeyHelpHtml(mapId) : ''}
+                    </div>
+                </div>
+            </fieldset>`;
     }
 
     private _zoomLevelChanged(e: Event) {
@@ -1305,15 +1349,15 @@ export class WhereaboutsMapCardEditor extends LitElement {
     render() {
         if (!this.hass) return html``;
 
-        return html`
+return html`
             <div class="editor-container">
                 <div class="editor-panel">
 
                 <!-- PERSONS SECTION -->
-                <details ?open=${!this._config.persons || this._config.persons.length === 0}>
-                    <summary><h3 style="display: inline;">Persons</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <div>
+                <details data-section-id="persons" ?open=${this._openSections.has('persons')} @toggle=${(e: Event) => this._sectionToggleHandler('persons', e)}>
+                    <summary><h3>Persons</h3></summary>
+                    <div class="section-content">
+                        <div class="form-row">
                             <label>Add person:</label>
                             <select @change=${this._addPerson}>
                                 <option value="">Select a person...</option>
@@ -1324,21 +1368,21 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         </div>
                         <div>
                             ${(this._config.persons || []).map((person, idx) => html`
-                                <details style="margin-bottom: 1em; border: 1px solid #ccc; padding: 0.5em; border-radius: 4px;">
-                                    <summary style="cursor: pointer; font-weight: bold;">
-                                        ${person.name || this.hass.states[person.entity_id]?.attributes?.friendly_name || person.entity_id}
-                                        <button @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); this._removePerson(idx); }}>Remove</button>
+                                <details class="item-box" data-section-id="person-${idx}" ?open=${this._openPersons.has(idx)} @toggle=${(e: Event) => this._personToggleHandler(idx, e)}>
+                                    <summary class="item-header">
+                                        <span>${person.name || this.hass.states[person.entity_id]?.attributes?.friendly_name || person.entity_id}</span>
+                                        <button class="remove-button" @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); this._removePerson(idx); }}>Remove</button>
                                     </summary>
-                                    <div style="margin-top: 0.5em;">
-                                        <div>
+                                    <div class="section-content">
+                                        <div class="form-row">
                                             <label>Custom name (optional):</label>
                                             <input type="text" .value=${person.name || ''} @input=${(e: Event) => this._personNameChanged(idx, e)} placeholder="Leave empty to use entity name" />
                                         </div>
 
                                         <!-- Sensors -->
-                                        <div>
-                                            <strong>Sensors</strong>
-                                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                                        <div class="subsection">
+                                            <legend>Named Sensors</legend>
+                                            <p class="help-text">
                                                 Add sensors with custom names to use in display conditions
                                             </p>
                                             <div class="sensor-list">
@@ -1355,17 +1399,17 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                         </div>
                                                     `) : ''}
                                             </div>
-                                            <div style="margin-top: 0.5em;">
-                                                <input type="text" id="new-sensor-name-${idx}" placeholder="Sensor name..." style="flex: 1; margin-right: 0.5em;"
+                                            <div class="form-row inline" style="margin-top: 8px;">
+                                                <input type="text" id="new-sensor-name-${idx}" placeholder="Sensor name..." style="flex: 1;"
                                                     @keydown=${(e: KeyboardEvent) => { if (e.key === 'Enter') this._addNamedSensorFromText(idx); }} />
-                                                <button @click=${() => this._addNamedSensorFromText(idx)}>Add</button>
+                                                <button class="add-button" @click=${() => this._addNamedSensorFromText(idx)}>Add</button>
                                             </div>
                                         </div>
 
                                         <!-- Display Conditions -->
-                                        <div style="margin-top: 1em;">
-                                            <strong>Display Conditions</strong>
-                                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                                        <div class="subsection">
+                                            <legend>Display Conditions</legend>
+                                            <p class="help-text">
                                                 Conditions for when this person is shown on the map. All top-level conditions must match (implicit AND).
                                             </p>
                                             <div class="conditions-list">
@@ -1374,7 +1418,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                 )}
                                             </div>
                                             <div class="add-condition-buttons">
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const persons = [...(this._config.persons || [])];
                                                     const person = persons[idx];
                                                     if (!person.displayConditions) person.displayConditions = [];
@@ -1382,7 +1426,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, persons };
                                                     this._emitConfigChanged();
                                                 }}>+ Value</button>
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const persons = [...(this._config.persons || [])];
                                                     const person = persons[idx];
                                                     if (!person.displayConditions) person.displayConditions = [];
@@ -1390,7 +1434,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, persons };
                                                     this._emitConfigChanged();
                                                 }}>+ Group</button>
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const persons = [...(this._config.persons || [])];
                                                     const person = persons[idx];
                                                     if (!person.displayConditions) person.displayConditions = [];
@@ -1398,7 +1442,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, persons };
                                                     this._emitConfigChanged();
                                                 }}>+ NOT</button>
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const persons = [...(this._config.persons || [])];
                                                     const person = persons[idx];
                                                     if (!person.displayConditions) person.displayConditions = [];
@@ -1410,9 +1454,9 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                         </div>
 
                                         <!-- Trail Point Conditions (per-person) -->
-                                        <div style="margin-top: 1em;">
-                                            <strong>Trail Point Conditions</strong>
-                                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                                        <div class="subsection">
+                                            <legend>Trail Point Conditions</legend>
+                                            <p class="help-text">
                                                 Override trail point conditions for this person. If empty, default trail conditions apply.
                                             </p>
                                             <div class="conditions-list">
@@ -1421,7 +1465,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                 )}
                                             </div>
                                             <div class="add-condition-buttons">
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const trail = { ...(this._config.trail || {}) };
                                                     if (!trail.person_conditions) trail.person_conditions = {};
                                                     if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
@@ -1429,7 +1473,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, trail };
                                                     this._emitConfigChanged();
                                                 }}>+ Value</button>
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const trail = { ...(this._config.trail || {}) };
                                                     if (!trail.person_conditions) trail.person_conditions = {};
                                                     if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
@@ -1437,7 +1481,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                     this._config = { ...this._config, trail };
                                                     this._emitConfigChanged();
                                                 }}>+ Group</button>
-                                                <button class="btn-small" @click=${() => {
+                                                <button class="add-button" @click=${() => {
                                                     const trail = { ...(this._config.trail || {}) };
                                                     if (!trail.person_conditions) trail.person_conditions = {};
                                                     if (!trail.person_conditions[person.entity_id]) trail.person_conditions[person.entity_id] = [];
@@ -1447,17 +1491,18 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                                 }}>+ NOT</button>
                                             </div>
                                         </div>
-                                `)}
-                            </div>
+                                    </div>
+                                </details>
+                            `)}
                         </div>
                     </div>
                 </details>
 
                 <!-- DISPLAY CONDITIONS (Default) -->
-                <details>
-                    <summary><h3 style="display: inline;">Display Conditions (Default)</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5em;">
+                <details data-section-id="display-conditions" ?open=${this._openSections.has('display-conditions')} @toggle=${(e: Event) => this._sectionToggleHandler('display-conditions', e)}>
+                    <summary><h3>Display Conditions (Default)</h3></summary>
+                    <div class="section-content">
+                        <p class="help-text">
                             Default conditions applied to all persons unless they have their own conditions.
                         </p>
                         <div class="conditions-list">
@@ -1466,19 +1511,19 @@ export class WhereaboutsMapCardEditor extends LitElement {
                             )}
                         </div>
                         <div class="add-condition-buttons">
-                            <button class="btn-small" @click=${() => {
+                            <button class="add-button" @click=${() => {
                                 const conds = [...(this._config.displayConditions || [])];
                                 conds.push({ sensor: 'distance', comparator: 'lt', value: '1000' });
                                 this._config = { ...this._config, displayConditions: conds };
                                 this._emitConfigChanged();
                             }}>+ Value</button>
-                            <button class="btn-small" @click=${() => {
+                            <button class="add-button" @click=${() => {
                                 const conds = [...(this._config.displayConditions || [])];
                                 conds.push({ type: 'AND', conditions: [] });
                                 this._config = { ...this._config, displayConditions: conds };
                                 this._emitConfigChanged();
                             }}>+ Group</button>
-                            <button class="btn-small" @click=${() => {
+                            <button class="add-button" @click=${() => {
                                 const conds = [...(this._config.displayConditions || [])];
                                 conds.push({ type: 'NOT', condition: { sensor: 'distance', comparator: 'lt', value: '1000' } });
                                 this._config = { ...this._config, displayConditions: conds };
@@ -1487,56 +1532,58 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         </div>
                     </div>
 
-                    <div style="margin-top: 1em;">
-                        <strong>Trail</strong>
-                        <div style="margin-left: 1em; margin-top: 0.3em;">
-                            <div>
+                    <div class="section-content">
+                        <div class="subsection">
+                            <legend>Trail</legend>
+                            <div class="form-row">
                                 <label>
                                     <input type="checkbox" .checked=${this._config.trail?.enabled ?? false} @change=${this._trailEnabledChanged} />
                                     Show history trail
                                 </label>
                             </div>
-                            <div style="margin-top: 0.5em;">
+                            <div class="form-row">
                                 <label>Max trail age (minutes):</label>
-                                <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} style="width: 80px;" />
+                                <input type="number" .value=${this._config.trail?.max_age ?? 60} min="1" max="1440" @input=${this._trailMaxAgeChanged} />
                             </div>
-                            <div style="margin-top: 0.5em;">
+                            <div class="form-row">
                                 <label>
                                     <input type="checkbox" .checked=${this._config.trail?.gps_jump_filter ?? false} @change=${this._trailGpsJumpFilterChanged} />
                                     GPS jump filter
                                 </label>
                             </div>
-                            <div style="margin-top: 0.5em;">
+                            <div class="form-row">
                                 <label>Newest point opacity:</label>
-                                <input type="number" .value=${this._config.trail?.newest_opacity ?? 1} min="0" max="1" step="0.05" @input=${this._trailNewestOpacityChanged} style="width: 60px;" />
+                                <input type="number" .value=${this._config.trail?.newest_opacity ?? 1} min="0" max="1" step="0.05" @input=${this._trailNewestOpacityChanged} />
                             </div>
-                            <div style="margin-top: 0.5em;">
+                            <div class="form-row">
                                 <label>Oldest point opacity:</label>
-                                <input type="number" .value=${this._config.trail?.oldest_opacity ?? 0.3} min="0" max="1" step="0.05" @input=${this._trailOldestOpacityChanged} style="width: 60px;" />
+                                <input type="number" .value=${this._config.trail?.oldest_opacity ?? 0.3} min="0" max="1" step="0.05" @input=${this._trailOldestOpacityChanged} />
                             </div>
-                            <div style="margin-top: 0.5em;">
+                            <div class="form-row">
                                 <label>Midpoint offset (0=steep then slow, 100=slow then steep):</label>
-                                <input type="range" .value=${this._config.trail?.midpoint ?? 50} min="0" max="100" @input=${this._trailMidpointChanged} style="width: 150px; vertical-align: middle;" />
-                                <span style="margin-left: 0.5em; font-size: 0.85em; color: #666;">${this._config.trail?.midpoint ?? 50}</span>
+                                <div class="inline">
+                                    <input type="range" .value=${this._config.trail?.midpoint ?? 50} min="0" max="100" @input=${this._trailMidpointChanged} style="width: 150px; vertical-align: middle;" />
+                                    <span class="help-text" style="margin: 0;">${this._config.trail?.midpoint ?? 50}</span>
+                                </div>
                             </div>
-                            <div style="margin-top: 0.5em;">
-                                <strong>Per-person colors</strong>
+                            <div class="form-row">
+                                <label>Per-person colors</label>
                                 ${(this._config.persons || []).map(p => {
                                     const name = (p.name || this.hass?.states?.[p.entity_id]?.attributes?.friendly_name || p.entity_id);
                                     return html`
                                         <div style="display: flex; align-items: center; gap: 0.5em; margin-top: 0.25em;">
                                             <label style="min-width: 120px;">${name}</label>
                                             <input type="color" .value=${this._config.trail?.colors?.[p.entity_id] || TRAIL_COLORS[this._config.persons.indexOf(p) % TRAIL_COLORS.length]} @input=${(e: Event) => this._trailColorChanged(p.entity_id, e)} />
-                                            <button @click=${() => this._trailColorReset(p.entity_id)} style="padding: 2px 6px; font-size: 0.8em;">Reset</button>
+                                            <button class="small-button" @click=${() => this._trailColorReset(p.entity_id)} style="padding: 2px 6px; font-size: 0.8em;">Reset</button>
                                         </div>
                                     `;
                                 })}
                             </div>
                         </div>
 
-                        <div style="margin-top: 1em;">
-                            <strong>Trail Point Conditions (Default)</strong>
-                            <p style="font-size: 0.9em; color: #666; margin: 0.25em 0 0.5em 0;">
+                        <div class="subsection">
+                            <legend>Trail Point Conditions (Default)</legend>
+                            <p class="help-text">
                                 Conditions applied to each trail point to control visibility. All top-level conditions must match (implicit AND).
                             </p>
                             <div class="conditions-list">
@@ -1545,21 +1592,21 @@ export class WhereaboutsMapCardEditor extends LitElement {
                                 )}
                             </div>
                             <div class="add-condition-buttons">
-                                <button class="btn-small" @click=${() => {
+                                <button class="add-button" @click=${() => {
                                     const trail = { ...(this._config.trail || {}) };
                                     if (!trail.conditions) trail.conditions = [];
                                     trail.conditions.push({ sensor: 'distance_from_user', comparator: 'lte', value: '1000' });
                                     this._config = { ...this._config, trail };
                                     this._emitConfigChanged();
                                 }}>+ Value</button>
-                                <button class="btn-small" @click=${() => {
+                                <button class="add-button" @click=${() => {
                                     const trail = { ...(this._config.trail || {}) };
                                     if (!trail.conditions) trail.conditions = [];
                                     trail.conditions.push({ type: 'AND', conditions: [] });
                                     this._config = { ...this._config, trail };
                                     this._emitConfigChanged();
                                 }}>+ Group</button>
-                                <button class="btn-small" @click=${() => {
+                                <button class="add-button" @click=${() => {
                                     const trail = { ...(this._config.trail || {}) };
                                     if (!trail.conditions) trail.conditions = [];
                                     trail.conditions.push({ type: 'NOT', condition: { sensor: 'distance_from_user', comparator: 'lte', value: '1000' } });
@@ -1572,54 +1619,56 @@ export class WhereaboutsMapCardEditor extends LitElement {
                 </details>
 
                 <!-- MAP CONFIGURATION -->
-                <details>
-                    <summary><h3 style="display: inline;">Map Configuration</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <div>
-                        <label>Map type:</label>
-                             <select .value=${this._config.map?.type || 'color'} @change=${this._mapTypeChanged}>
-                                 ${this._mainMapOptionsHtml()}
-                             </select>
+                <details data-section-id="map-configuration" ?open=${this._openSections.has('map-configuration')} @toggle=${(e: Event) => this._sectionToggleHandler('map-configuration', e)}>
+                    <summary><h3>Map Configuration</h3></summary>
+                    <div class="section-content">
+                        <div class="form-row">
+                            <label>Map type:</label>
+                            <select .value=${this._config.map?.type || 'color'} @change=${this._mapTypeChanged}>
+                                ${this._mainMapOptionsHtml()}
+                            </select>
                         </div>
                         ${this._config.map?.type === 'system'
                             ? html`${this._themeApiKeyRowHtml('light')}${this._themeApiKeyRowHtml('dark')}`
                             : html`
-                                <div>
+                                <div class="form-row">
                                     <label>API Key${requiresApiKey(this._config.map?.type) ? '' : ' (optional)'}:</label>
-                                    <input type="text" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="API key for this map" style="width: 200px;" />
-                                    ${requiresApiKey(this._config.map?.type) ? this._apiKeyHelpHtml(this._config.map?.type) : ''}
+                                    <div class="input-with-help">
+                                        <input type="text" class="full-width" .value=${this._config.map?.api_key || ''} @input=${this._mapApiKeyChanged} placeholder="Paste your API key" />
+                                        ${requiresApiKey(this._config.map?.type) ? this._apiKeyHelpHtml(this._config.map?.type) : ''}
+                                    </div>
                                 </div>`}
-                        <div>
+                        <div class="form-row">
                             <label>Opacity:</label>
-                            <input type="number" .value=${this._config.map?.opacity ?? 1} min="0" max="1" step="0.1" @input=${this._mapOpacityChanged} style="width: 60px;" />
+                            <input type="number" .value=${this._config.map?.opacity ?? 1} min="0" max="1" step="0.1" @input=${this._mapOpacityChanged} />
                         </div>
                     </div>
                 </details>
 
                 <!-- ZOOM & CENTER -->
-                <details>
-                    <summary><h3 style="display: inline;">Zoom & Center</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <div>
+                <details data-section-id="zoom-center" ?open=${this._openSections.has('zoom-center')} @toggle=${(e: Event) => this._sectionToggleHandler('zoom-center', e)}>
+                    <summary><h3>Zoom & Center</h3></summary>
+                    <div class="section-content">
+                        <div class="form-row">
                             <label>Zoom level:</label>
                             <select .value=${this._config.zoom?.level ?? 13} @change=${this._zoomLevelChanged}>
                                 ${VALID_ZOOM_LEVELS.map(level => html`<option value=${level} ?selected="${this._config.zoom?.level === level}">${level}${level === 10 ? ' (~20km)' : ''}</option>`)}
                             </select>
                         </div>
-                        <div style="margin-top: 0.3em;">
+                        <div class="form-row">
                             <label>Auto zoom:</label>
                             <select .value=${this._config.zoom?.auto_level === true ? 'fit' : this._config.zoom?.auto_level === 'zoom_out' ? 'zoom_out' : 'off'} @change=${this._zoomAutoChanged}>
                                 <option value="off">Off</option>
                                 <option value="fit">Yes (fit all)</option>
                                 <option value="zoom_out">Zoom out only</option>
                             </select>
-                            <span style="font-size: 0.85em; color: #666; margin-left: 0.5em;">
+                            <span class="help-text">
                                 ${this._config.center?.type === 'visible'
                                     ? this._config.zoom?.auto_level === 'zoom_out' ? '(zoom out to show all visible persons, never zoom in)' : '(automatic zoom and center on visible persons)'
                                     : this._config.zoom?.auto_level === 'zoom_out' ? '(zoom out to show all visible persons, never zoom in)' : '(automatic zoom to include all visible persons)'}
                             </span>
                         </div>
-                        <div style="margin-top: 0.5em;">
+                        <div class="form-row">
                             <label>Center on:</label>
                             <select .value=${this._config.center?.type || 'user'} @change=${this._centerTypeChanged}>
                                 <option value="user">User (logged in user)</option>
@@ -1635,7 +1684,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         </div>
 
                         ${this._config.center?.type === 'home' ? html`
-                        <div style="margin-top: 0.5em;">
+                        <div class="form-row">
                             <label>Home zone:</label>
                             <select .value=${this._config.center?.home_zone || ''} @change=${this._centerHomeZoneChanged}>
                                 <option value="">Select zone...</option>
@@ -1649,50 +1698,50 @@ export class WhereaboutsMapCardEditor extends LitElement {
                         ` : ''}
 
                         ${this._config.center?.type === 'fixed' ? html`
-                        <div style="margin-top: 0.5em; display: flex; gap: 0.5em; align-items: center;">
+                        <div class="form-row">
                             <label>Coordinates:</label>
-                            <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lat || ''}
-                                   @input=${(e: Event) => this._centerFixedCoordinatesChanged('lat', (e.target as HTMLInputElement).value)}
-                                   placeholder="Lat" style="width: 100px;" />
-                            <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lon || ''}
-                                   @input=${(e: Event) => this._centerFixedCoordinatesChanged('lon', (e.target as HTMLInputElement).value)}
-                                   placeholder="Lon" style="width: 100px;" />
-                            <button @click=${this._selectLocationOnMap}>Select on map</button>
+                            <div class="inline">
+                                <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lat || ''}
+                                       @input=${(e: Event) => this._centerFixedCoordinatesChanged('lat', (e.target as HTMLInputElement).value)}
+                                       placeholder="Lat" />
+                                <input type="number" step="any" .value=${this._config.center?.fixed_coordinates?.lon || ''}
+                                       @input=${(e: Event) => this._centerFixedCoordinatesChanged('lon', (e.target as HTMLInputElement).value)}
+                                       placeholder="Lon" />
+                                <button class="add-button" @click=${this._selectLocationOnMap}>Select on map</button>
+                            </div>
                         </div>
                         ` : ''}
 
-                        <div style="margin-top: 0.5em;">
-                            <p style="font-size: 0.9em; color: #666;">
-                                The current logged-in user is auto-detected for distance calculations.
-                            </p>
-                        </div>
+                        <p class="help-text">
+                            The current logged-in user is auto-detected for distance calculations.
+                        </p>
                     </div>
                 </details>
 
                 <!-- DISPLAY -->
-                <details>
-                    <summary><h3 style="display: inline;">Display</h3></summary>
-                    <div style="margin-left: 1em;">
-                        <div>
+                <details data-section-id="display" ?open=${this._openSections.has('display')} @toggle=${(e: Event) => this._sectionToggleHandler('display', e)}>
+                    <summary><h3>Display</h3></summary>
+                    <div class="section-content">
+                        <div class="form-row">
                             <label>
                                 <input type="checkbox" .checked=${this._config.show_title !== false} @change=${this._showTitleChanged} />
                                 Show title
                             </label>
-                            <input type="text" .value=${this._config.title || 'Whereabouts Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} style="margin-left: 1em; width: 200px;" />
+                            <input type="text" .value=${this._config.title || 'Whereabouts Map'} ?disabled=${this._config.show_title === false} @input=${this._titleChanged} />
                         </div>
-                        <div>
+                        <div class="form-row">
                             <label>
                                 <input type="checkbox" .checked=${this._config.map?.interactive !== false} @change=${this._mapInteractiveChanged} />
                                 Interactive (zoom, pan, scroll)
                             </label>
                         </div>
-                        <div>
+                        <div class="form-row">
                             <label>
                                 <input type="checkbox" .checked=${this._config.show_auto_zoom !== false} @change=${this._showAutoZoomChanged} />
                                 Show auto zoom button
                             </label>
                         </div>
-                        <div>
+                        <div class="form-row">
                             <label>
                                 <input type="checkbox" .checked=${this._config.show_toggle_buttons !== false} @change=${this._showToggleButtonsChanged} />
                                 Show toggle buttons
@@ -1707,64 +1756,232 @@ export class WhereaboutsMapCardEditor extends LitElement {
 
     static styles = css`
         .editor-container {
-            padding: 16px;
-            max-height: 500px;
-            overflow-y: auto;
+            position: relative;
+            z-index: 1000;
+            background: var(--card-background-color, #fff);
         }
         .editor-panel {
             display: flex;
             flex-direction: column;
-            gap: 16px;
         }
         details {
-            border: 1px solid var(--divider-color);
+            margin-bottom: 12px;
+            border: 1px solid var(--divider-color, #ccc);
             border-radius: 4px;
-            padding: 8px;
+            padding: 6px;
         }
-        summary {
+        details summary {
             cursor: pointer;
+            user-select: none;
             font-weight: bold;
         }
+        summary {
+            padding: 6px;
+            margin: -6px;
+            border-radius: 3px;
+        }
+        summary:hover {
+            background: var(--secondary-background-color, #f0f0f0);
+        }
         h3 {
-            margin: 0 0 8px 0;
+            display: inline;
+            margin: 0;
             font-size: 1em;
         }
-        label {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            margin-right: 8px;
+        h4 {
+            margin: 12px 0 6px 0;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: var(--secondary-text-color, #666);
         }
-        input[type="text"], input[type="number"], select {
-            padding: 4px 8px;
-            border: 1px solid var(--divider-color);
+        summary h4 {
+            display: inline;
+            margin: 0;
+        }
+        details details {
+            margin-bottom: 8px;
+            border: 1px solid var(--divider-color, #e0e0e0);
+            background: var(--secondary-background-color, #f5f5f5);
+        }
+        details details summary {
+            padding: 4px;
+            margin: -4px;
+        }
+        details details .section-content {
+            padding: 8px 6px 6px 6px;
+        }
+        .section-content {
+            padding: 12px 6px 6px 6px;
+        }
+        .subsection {
+            margin-bottom: 12px;
+            padding: 8px;
+            border: 1px solid var(--divider-color, #e0e0e0);
             border-radius: 4px;
+            background: var(--secondary-background-color, #f5f5f5);
+        }
+        .subsection legend {
+            padding: 0 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: var(--secondary-text-color, #666);
+        }
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 10px;
+        }
+        .form-row label {
+            font-weight: 500;
+            font-size: 0.9em;
+            color: var(--secondary-text-color, #666);
+        }
+        .form-row .inline {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+        }
+        input[type="text"],
+        input[type="number"],
+        input[type="color"],
+        select,
+        textarea {
+            padding: 6px 8px;
+            border: 1px solid var(--divider-color, #ccc);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        input[type="number"] {
+            max-width: 120px;
+        }
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+        .full-width {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        textarea.full-width {
+            min-height: 60px;
+        }
+        .help-text {
+            color: var(--secondary-text-color, #666);
+            font-size: 0.85em;
+            margin: 2px 0;
+            line-height: 1.3;
+        }
+        .input-with-help {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+        }
+        .input-with-help .full-width {
+            flex: 1;
+            min-width: 0;
+        }
+        .input-with-help .help-text {
+            flex: 0 0 auto;
+            max-width: 60%;
+            margin: 0;
+        }
+        .item-box {
+            border: 1px solid var(--divider-color, #ccc);
+            border-radius: 4px;
+            padding: 0;
+            margin-bottom: 8px;
+            background: var(--secondary-background-color, #f5f5f5);
+        }
+        .item-box summary.item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            margin: 0;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+            font-size: 0.9em;
+        }
+        .item-box summary.item-header::-webkit-details-marker {
+            display: none;
+        }
+        .item-box summary.item-header::before {
+            content: '▶';
+            font-size: 9px;
+            margin-right: 6px;
+            transition: transform 0.2s;
+        }
+        .item-box[open] summary.item-header::before {
+            transform: rotate(90deg);
+        }
+        .item-box summary.item-header:hover {
+            background: rgba(0, 0, 0, 0.03);
+        }
+        .item-box .section-content {
+            padding: 0 8px 8px 8px;
+        }
+        .button-group {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 5px 10px;
+            border: 1px solid var(--divider-color, #ccc);
+            border-radius: 4px;
+            background: var(--card-background-color, #fff);
+            color: var(--primary-text-color);
+            cursor: pointer;
+            font-size: 13px;
+        }
+        button:hover {
+            background: var(--secondary-background-color, #f0f0f0);
+        }
+        .add-button {
+            background: var(--primary-color, #03a9f4);
+            color: white;
+            border: none;
+        }
+        .add-button:hover {
+            background: var(--dark-primary-color, #0288d1);
+        }
+        .remove-button {
+            background: var(--error-color, #f44336);
+            color: white;
+            border: none;
+        }
+        .remove-button:hover {
+            background: #d32f2f;
+        }
+        .small-button {
+            font-size: 11px;
+            padding: 3px 6px;
+        }
+        .icon-button {
+            padding: 3px 6px;
+            font-weight: bold;
+            background: none;
+            border: 1px solid var(--divider-color, #ccc);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .sensor-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
         }
         .sensor-row {
             display: flex;
             gap: 4px;
             margin-bottom: 4px;
             align-items: center;
-        }
-        .icon-button {
-            padding: 4px 8px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 1.2em;
-        }
-        button {
-            padding: 6px 12px;
-            background: var(--primary-color);
-            color: var(--text-primary-color);
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn-small {
-            padding: 4px 8px;
-            font-size: 0.85em;
-            margin-right: 4px;
         }
         .conditions-list {
             display: flex;
@@ -1776,6 +1993,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
             border: 1px solid var(--divider-color);
             padding: 0;
             margin-bottom: 4px;
+            background: var(--card-background-color, #fff);
         }
         .condition-box.nested {
             margin-left: 16px;
@@ -1789,18 +2007,39 @@ export class WhereaboutsMapCardEditor extends LitElement {
         .condition-box.condition-not {
             border-left: 3px solid #f44336;
         }
+        .condition-box.condition-default {
+            border-left: 3px solid #9c27b0;
+        }
         .condition-summary {
             display: flex;
             align-items: center;
             gap: 8px;
             padding: 6px 8px;
             cursor: pointer;
+            user-select: none;
             font-weight: normal;
+            list-style: none;
+        }
+        .condition-summary::-webkit-details-marker {
+            display: none;
+        }
+        .condition-summary::before {
+            content: '▶';
+            font-size: 9px;
+            margin-right: 6px;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+        .condition-box[open] > .condition-summary::before {
+            transform: rotate(90deg);
+        }
+        .condition-summary:hover {
+            background: rgba(0, 0, 0, 0.02);
         }
         .condition-badge {
             padding: 1px 6px;
             border-radius: 3px;
-            font-size: 0.75em;
+            font-size: 0.7em;
             font-weight: bold;
             color: white;
             flex-shrink: 0;
@@ -1821,6 +2060,10 @@ export class WhereaboutsMapCardEditor extends LitElement {
             flex: 1;
             font-family: monospace;
             font-size: 0.9em;
+            color: var(--secondary-text-color, #666);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .remove-btn {
             background: none;
@@ -1832,6 +2075,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
         }
         .remove-btn:hover {
             color: #f44336;
+            background: none;
         }
         .condition-body {
             padding: 8px;
@@ -1846,7 +2090,7 @@ export class WhereaboutsMapCardEditor extends LitElement {
         .condition-row label {
             min-width: 80px;
             font-size: 0.85em;
-            color: #666;
+            color: var(--secondary-text-color, #666);
         }
         .nested-conditions {
             margin-top: 8px;
