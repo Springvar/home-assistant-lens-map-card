@@ -46,9 +46,9 @@ function getLocation(hass: any, entityId: string): { latitude: number; longitude
 function getDataAgeMinutes(hass: any, entityId: string): number {
     const entity = hass?.states[entityId];
     if (!entity) return Infinity;
-    const lastChanged = entity.last_changed || entity.last_updated;
-    if (!lastChanged) return Infinity;
-    const timestamp = new Date(lastChanged).getTime();
+    const lastUpdated = entity.last_updated || entity.last_changed;
+    if (!lastUpdated) return Infinity;
+    const timestamp = new Date(lastUpdated).getTime();
     if (isNaN(timestamp)) return Infinity;
     return (Date.now() - timestamp) / 60000;
 }

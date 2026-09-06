@@ -442,29 +442,27 @@ class WhereaboutsMapCard extends LitElement {
         }
 
         try {
-            const result: any[][] = await this._hass.callApi(
-                'GET',
-                `history/period/${startTime}`,
-                { filter_entity_id: allDeviceTrackers.join(',') }
-            );
-
-            const trackerStates = new Map<string, any[]>();
-            for (const states of result) {
-                if (states.length === 0) continue;
-                trackerStates.set(states[0].entity_id, states);
-            }
+            const result: Record<string, Array<{ s: string; a?: Record<string, any>; lc?: number; lu: number }>> =
+                await this._hass.callWS({
+                    type: 'history/history_during_period',
+                    start_time: startTime,
+                    end_time: new Date().toISOString(),
+                    entity_ids: allDeviceTrackers,
+                    no_attributes: false,
+                    minimal_response: false
+                });
 
             for (const person of this.persons) {
                 const trackers = personTrackers.get(person.entity_id) || [];
                 const allPoints: Array<{ lat: number; lon: number; ts: number }> = [];
 
                 for (const trackerId of trackers) {
-                    const states = trackerStates.get(trackerId) || [];
+                    const states = result[trackerId] || [];
                     for (const state of states) {
-                        const lat = state.attributes?.latitude;
-                        const lon = state.attributes?.longitude;
+                        const lat = state.a?.latitude;
+                        const lon = state.a?.longitude;
                         if (typeof lat === 'number' && typeof lon === 'number') {
-                            const ts = new Date(state.last_updated || state.last_changed).getTime();
+                            const ts = (state.lc ?? state.lu) * 1000;
                             if (!isNaN(ts)) {
                                 allPoints.push({ lat, lon, ts });
                             }
@@ -915,9 +913,9 @@ class WhereaboutsMapCard extends LitElement {
     private _getDataAgeHours(entityId: string): number {
         const entity = this._hass?.states?.[entityId];
         if (!entity) return Infinity;
-        const lastChanged = entity.last_changed || entity.last_updated;
-        if (!lastChanged) return Infinity;
-        const timestamp = new Date(lastChanged).getTime();
+        const lastUpdated = entity.last_updated || entity.last_changed;
+        if (!lastUpdated) return Infinity;
+        const timestamp = new Date(lastUpdated).getTime();
         if (isNaN(timestamp)) return Infinity;
         return (Date.now() - timestamp) / 3600000;
     }
@@ -938,10 +936,12 @@ class WhereaboutsMapCard extends LitElement {
 
     private _refreshStaleMarkers() {
         if (!this._leafletMap) return;
+        let changed = false;
         for (const person of this.persons || []) {
             const isStale = this._isStale(person.entity_id);
             const wasStale = this._staleState.get(person.entity_id) ?? false;
             if (isStale === wasStale) continue;
+            changed = true;
             this._staleState.set(person.entity_id, isStale);
             const marker = this._markers.get(person.entity_id);
             if (marker) {
@@ -950,6 +950,7 @@ class WhereaboutsMapCard extends LitElement {
                 marker.setIcon(this._createPersonIcon(stateObj, name, isStale));
             }
         }
+        if (changed) this.requestUpdate();
     }
 
     private _togglePerson(entityId: string) {
@@ -1013,12 +1014,13 @@ class WhereaboutsMapCard extends LitElement {
                         ` : ''}
                         ${this.show_toggle_buttons ? this.persons.map(person => {
                             const isHidden = this._hiddenPersons.has(person.entity_id);
+                            const isStale = this._isStale(person.entity_id);
                             const name = person.name || this._hass?.states?.[person.entity_id]?.attributes?.friendly_name || person.entity_id;
                             const imgUrl = this._getPersonIconUrl(person);
                             return html`
-                                <button class="overlay-person-btn ${isHidden ? 'hidden' : ''}"
+                                <button class="overlay-person-btn ${isHidden ? 'hidden' : ''} ${isStale ? 'stale' : ''}"
                                         @click=${() => this._togglePerson(person.entity_id)}
-                                        title="${name} (${isHidden ? 'hidden' : 'visible'})">
+                                        title="${name} (${isHidden ? 'hidden' : 'visible'}${isStale ? ', stale' : ''})">
                                     ${imgUrl ? html`
                                         <img src="${imgUrl}" class="person-icon-img" />
                                     ` : html`
@@ -1106,6 +1108,10 @@ class WhereaboutsMapCard extends LitElement {
         .overlay-person-btn.hidden {
             filter: grayscale(1);
             opacity: 0.5;
+        }
+        .overlay-person-btn.stale {
+            filter: grayscale(1);
+            opacity: 0.6;
         }
         .person-marker.stale {
             filter: grayscale(1);

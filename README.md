@@ -226,7 +226,7 @@ persons:
 stale_after_hours: 24
 ```
 
-The card re-evaluates staleness once a minute and updates the markers automatically. A person with no entity or no timestamp is always treated as stale.
+The card re-evaluates staleness once a minute and updates the markers automatically. A person with no entity or no timestamp is always treated as stale. Age is measured from the entity's `last_updated` (falling back to `last_changed`), so attribute-only GPS updates keep a person "fresh" even when the state value (`home`/`away`) doesn't change.
 
 You can also use the built-in `data_age` sensor (age in **minutes**) in display conditions, e.g. to hide a stale person entirely instead of just dimming them:
 

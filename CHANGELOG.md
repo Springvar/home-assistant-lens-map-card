@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.3-pre] - 2026-09-06
+
+### Fixed
+
+- **Trail history "Request error"** - Replaced the REST `callApi` history fetch with the WebSocket `history/history_during_period` API (`hass.callWS`), eliminating the residual `{error: 'Request error'}` failures on Home Assistant versions where the REST history endpoint is unavailable or rejects requests. Trail points now come from the compact `{s, a, lc, lu}` shape.
+- **Staleness now uses `last_updated`** - A person's age is measured from the entity's `last_updated` (which refreshes on attribute-only GPS updates) with a `last_changed` fallback, instead of `last_changed`. This matches Home Assistant's own history behavior so stale detection works even when the state value doesn't change. Applies to both the "Show as stale" markers and the `data_age` sensor.
+- **Stale styling on overlay toggles** - The person toggle buttons in the top-right overlay now also dim and grayscale when their person is stale, matching the map marker treatment.
+
 ## [0.3.2-pre] - 2026-09-06
 
 ### Added
