@@ -10,6 +10,7 @@ A Home Assistant Lovelace card to display persons on a map based on configurable
 - Configurable display rules for when each person is shown
 - Default rule: distance < 1000m from current user
 - Custom sensors per person
+- Stale-person detection: dim/desaturate markers whose location hasn't updated in a while
 - History trail with configurable opacity, age, proximity, and distance filters
 - Per-person trail color picker
 - Multiple map tile providers (OpenStreetMap, CartoDB, Stadia, Esri, OpenTopoMap)
@@ -112,6 +113,7 @@ show_toggle_buttons: true
 | `persons` | array | `[]` | List of persons to display |
 | `current_user` | string | auto-detected | Entity ID of the current user (used as reference for distance calculations; auto-detected from `hass.user.id` if not set) |
 | `display_rules` | array | | Default display rules applied to all persons |
+| `stale_after_hours` | number | | Mark a person as "stale" when their location hasn't updated in this many hours (0/unset disables) |
 | `map` | object | | Map configuration |
 | `zoom` | object | | Zoom settings |
 | `center` | object | | Center settings |
@@ -135,7 +137,7 @@ show_toggle_buttons: true
 |--------|------|--------|-------------|
 | `id` | string | Unique | Rule ID |
 | `priority` | number | `1` | Higher = evaluated first |
-| `sensor` | string | `'distance'` | Sensor to check (`distance`, `state`, or custom sensor name) |
+| `sensor` | string | `'distance'` | Sensor to check (`distance`, `state`, `data_age`, or custom sensor name) |
 | `operator` | string | Required | Comparison operator (`<`, `<=`, `>`, `>=`, `=`, `!=`, `oneOf`) |
 | `value` | string | Required | Value to compare against |
 | `enabled` | boolean | `true` | Whether rule is active |
@@ -209,6 +211,33 @@ Center types:
 | `colors` | object | | Per-person trail color overrides by entity_id (e.g., `{ "person.dad": "#e6194b" }`) |
 
 Trail colors are auto-assigned from a 20-color palette if not overridden per person.
+
+## Stale Persons
+
+Stale persons are those whose location hasn't updated recently. Their markers are dimmed and shown in grayscale so you can spot outdated positions at a glance.
+
+Set `stale_after_hours` (default disabled) to the number of hours after which a marker is considered stale:
+
+```yaml
+type: custom:whereabouts-map-card
+persons:
+  - entity_id: person.user1
+  - entity_id: person.user2
+stale_after_hours: 24
+```
+
+The card re-evaluates staleness once a minute and updates the markers automatically. A person with no entity or no timestamp is always treated as stale.
+
+You can also use the built-in `data_age` sensor (age in **minutes**) in display conditions, e.g. to hide a stale person entirely instead of just dimming them:
+
+```yaml
+displayConditions:
+  - sensor: data_age
+    comparator: lte
+    value: 1440   # 1440 minutes = 24 hours
+```
+
+The **Show as stale** setting is also available in the card editor, under *Display Conditions*.
 
 ## Sensors
 

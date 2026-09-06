@@ -156,6 +156,54 @@ describe('evaluateConditions', () => {
         });
     });
 
+    describe('SensorCondition - data_age', () => {
+        const minutesAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString();
+
+        it('matches data age in minutes', () => {
+            const hass = makeHass({
+                states: {
+                    ...makeHass().states,
+                    'person.john': { state: 'home', attributes: {}, last_changed: minutesAgo(1500) }, // 25h
+                },
+            });
+            const cond: SensorCondition = { sensor: 'data_age', comparator: 'gt', value: 1440 }; // > 24h
+            expect(evaluateConditions(hass, makePerson(), null, cond)).toBe(true);
+        });
+
+        it('fails for fresh data', () => {
+            const hass = makeHass({
+                states: {
+                    ...makeHass().states,
+                    'person.john': { state: 'home', attributes: {}, last_changed: minutesAgo(30) },
+                },
+            });
+            const cond: SensorCondition = { sensor: 'data_age', comparator: 'gt', value: 1440 };
+            expect(evaluateConditions(hass, makePerson(), null, cond)).toBe(false);
+        });
+
+        it('returns infinity for missing last_changed (always stale)', () => {
+            const hass = makeHass({
+                states: {
+                    ...makeHass().states,
+                    'person.john': { state: 'home', attributes: {} },
+                },
+            });
+            const cond: SensorCondition = { sensor: 'data_age', comparator: 'gt', value: 0 };
+            expect(evaluateConditions(hass, makePerson(), null, cond)).toBe(true);
+        });
+
+        it('uses last_updated fallback', () => {
+            const hass = makeHass({
+                states: {
+                    ...makeHass().states,
+                    'person.john': { state: 'home', attributes: {}, last_updated: minutesAgo(3600) }, // 60h
+                },
+            });
+            const cond: SensorCondition = { sensor: 'data_age', comparator: 'gte', value: 720 }; // >= 12h
+            expect(evaluateConditions(hass, makePerson(), null, cond)).toBe(true);
+        });
+    });
+
     describe('SensorCondition - random', () => {
         it('always passes when probability is 1', () => {
             const cond: SensorCondition = { sensor: 'random', comparator: 'eq', value: 1 };

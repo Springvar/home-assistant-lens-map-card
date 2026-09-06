@@ -1227,6 +1227,18 @@ export class WhereaboutsMapCardEditor extends LitElement {
         this._emitConfigChanged();
     }
 
+    private _staleEnabledChanged(e: Event) {
+        const checked = (e.target as HTMLInputElement).checked;
+        this._config = { ...this._config, stale_after_hours: checked ? (this._config.stale_after_hours || 24) : undefined };
+        this._emitConfigChanged();
+    }
+
+    private _staleHoursChanged(e: Event) {
+        const value = parseInt((e.target as HTMLInputElement).value) || 24;
+        this._config = { ...this._config, stale_after_hours: value };
+        this._emitConfigChanged();
+    }
+
     private _getTrailConditions(context: string): DisplayCondition[] {
         if (context === 'default' || context === 'trail_default') {
             return this._config.trail?.conditions || [];
@@ -1529,6 +1541,29 @@ return html`
                                 this._config = { ...this._config, displayConditions: conds };
                                 this._emitConfigChanged();
                             }}>+ NOT</button>
+                        </div>
+                    </div>
+
+                    <div class="section-content">
+                        <div class="subsection">
+                            <legend>Show as stale</legend>
+                            <div class="form-row">
+                                <label>
+                                    <input type="checkbox"
+                                        .checked=${(this._config.stale_after_hours ?? 0) > 0}
+                                        @change=${this._staleEnabledChanged} />
+                                    Show stale markers in grayscale
+                                </label>
+                            </div>
+                            ${(this._config.stale_after_hours ?? 0) > 0 ? html`
+                                <div class="form-row">
+                                    <label>Mark as stale after (hours):</label>
+                                    <div class="inline">
+                                        <input type="range" .value=${this._config.stale_after_hours ?? 24} min="1" max="72" step="1" @input=${this._staleHoursChanged} style="width: 150px; vertical-align: middle;" />
+                                        <span class="help-text" style="margin: 0;">${this._config.stale_after_hours ?? 24} h</span>
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 

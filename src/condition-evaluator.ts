@@ -43,6 +43,16 @@ function getLocation(hass: any, entityId: string): { latitude: number; longitude
     return null;
 }
 
+function getDataAgeMinutes(hass: any, entityId: string): number {
+    const entity = hass?.states[entityId];
+    if (!entity) return Infinity;
+    const lastChanged = entity.last_changed || entity.last_updated;
+    if (!lastChanged) return Infinity;
+    const timestamp = new Date(lastChanged).getTime();
+    if (isNaN(timestamp)) return Infinity;
+    return (Date.now() - timestamp) / 60000;
+}
+
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -142,6 +152,10 @@ function resolveSensorValue(hass: any, person: PersonConfig, currentUserLocation
     if (sensorKey === 'state') {
         const state = getEntityState(hass, person.entity_id);
         return isNaN(parseFloat(state)) ? state : parseFloat(state);
+    }
+
+    if (sensorKey === 'data_age') {
+        return getDataAgeMinutes(hass, person.entity_id);
     }
 
     const namedSensor = person.namedSensors?.[sensorKey];

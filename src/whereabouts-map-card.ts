@@ -12,6 +12,7 @@ export interface WhereaboutsMapCardConfig {
     current_user?: string;
     display_rules?: DisplayRule[];
     displayConditions?: DisplayCondition[];
+    stale_after_hours?: number;
     map?: MapConfig;
     zoom?: ZoomConfig;
     center?: CenterConfig;
@@ -77,6 +78,7 @@ class WhereaboutsMapCard extends LitElement {
     @property({ type: String }) declare current_user: string;
     @property({ type: Array }) declare display_rules: DisplayRule[];
     @property({ type: Array }) declare displayConditions: DisplayCondition[];
+    @property({ type: Number }) declare stale_after_hours: number;
     @property({ type: Object }) declare map: MapConfig;
     @property({ type: Object }) declare zoom: ZoomConfig;
     @property({ type: Object }) declare center: CenterConfig;
@@ -100,6 +102,8 @@ class WhereaboutsMapCard extends LitElement {
     private _lastCenterPos: { lat: number; lng: number } | null = null;
     @state() private _hiddenPersons: Set<string> = new Set();
     @state() private _autoZoomMode: 'off' | 'fit' | 'zoom_out' = 'off';
+    private _staleState: Map<string, boolean> = new Map();
+    private _staleTimer: ReturnType<typeof setInterval> | null = null;
 
     private get _effectiveAutoZoom(): boolean {
         return this._autoZoomMode !== 'off';
@@ -187,6 +191,11 @@ class WhereaboutsMapCard extends LitElement {
         this._clearTrails();
         this._positionHistory.clear();
         this._markers.clear();
+        this._staleState.clear();
+        if (this._staleTimer != null) {
+            clearInterval(this._staleTimer);
+            this._staleTimer = null;
+        }
         if (this._resizeObserver) {
             this._resizeObserver.disconnect();
             this._resizeObserver = null;
@@ -236,6 +245,7 @@ class WhereaboutsMapCard extends LitElement {
         this.show_title = config.show_title !== false;
         this.show_auto_zoom = config.show_auto_zoom !== false;
         this.show_toggle_buttons = config.show_toggle_buttons !== false;
+        this.stale_after_hours = config.stale_after_hours;
         this._autoZoomMode = this.zoom?.auto_level === true ? 'fit'
             : this.zoom?.auto_level === 'zoom_out' ? 'zoom_out'
             : 'off';
@@ -367,6 +377,7 @@ class WhereaboutsMapCard extends LitElement {
         this._setupResizeObserver(mapContainer);
         this._mapInitialized = true;
         this._lastCenterPos = null;
+        this._startStaleTimer();
     }
 
     private _fitMapToVisibleMarkers() {
@@ -431,23 +442,11 @@ class WhereaboutsMapCard extends LitElement {
         }
 
         try {
-            const url = `/api/history/period/${encodeURIComponent(startTime)}?filter_entity_id=${allDeviceTrackers.join(',')}`;
-            const auth = (this._hass as any).auth;
-            const token = auth?.access_token || auth?.data?.access_token || '';
-            const resp = await fetch(url, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const result: any[][] = await resp.json();
-
-            console.log('[WhereaboutsMap] history response entities:', result.length, 'trackers queried:', allDeviceTrackers);
-            for (const states of result) {
-                if (states.length === 0) continue;
-                const eid = states[0].entity_id;
-                const withLat = states.filter((s: any) => typeof s.attributes?.latitude === 'number').length;
-                const withLon = states.filter((s: any) => typeof s.attributes?.longitude === 'number').length;
-                console.log('[WhereaboutsMap] history for', eid, '- records:', states.length, 'withLat:', withLat, 'withLon:', withLon);
-            }
+            const result: any[][] = await this._hass.callApi(
+                'GET',
+                `history/period/${startTime}`,
+                { filter_entity_id: allDeviceTrackers.join(',') }
+            );
 
             const trackerStates = new Map<string, any[]>();
             for (const states of result) {
@@ -818,21 +817,22 @@ class WhereaboutsMapCard extends LitElement {
         this._leafletMap.addLayer(tileLayer);
     }
 
-    private _createPersonIcon(stateObj: any, name: string): any {
+    private _createPersonIcon(stateObj: any, name: string, isStale = false): any {
+        const className = `person-marker${isStale ? ' stale' : ''}`;
         const pictureUrl = stateObj?.attributes?.entity_picture;
         if (pictureUrl) {
             return window.L.divIcon({
                 html: `<img src="${this._hass.hassUrl(pictureUrl)}" style="width:40px;height:40px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);object-fit:cover;" />`,
                 iconSize: [40, 40],
                 iconAnchor: [20, 20],
-                className: ''
+                className
             });
         }
         return window.L.divIcon({
             html: `<div style="width:36px;height:36px;border-radius:50%;background:#03a9f4;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold;">${name.charAt(0).toUpperCase()}</div>`,
             iconSize: [36, 36],
             iconAnchor: [18, 18],
-            className: ''
+            className
         });
     }
 
@@ -853,6 +853,7 @@ class WhereaboutsMapCard extends LitElement {
             if (!visible.has(entityId)) {
                 marker.remove();
                 this._markers.delete(entityId);
+                this._staleState.delete(entityId);
             }
         }
 
@@ -863,15 +864,21 @@ class WhereaboutsMapCard extends LitElement {
             const stateObj = this._hass.states[person.entity_id];
             const name = person.name || stateObj?.attributes?.friendly_name || person.entity_id;
             const entityState = stateObj?.state || 'unknown';
+            const isStale = this._isStale(person.entity_id);
+            const wasStale = this._staleState.get(person.entity_id) ?? false;
 
             const existing = this._markers.get(person.entity_id);
             if (existing) {
                 existing.setLatLng([location.latitude, location.longitude]);
                 existing.setPopupContent(`<strong>${name}</strong><br>${entityState}`);
+                if (isStale !== wasStale) {
+                    existing.setIcon(this._createPersonIcon(stateObj, name, isStale));
+                }
+                this._staleState.set(person.entity_id, isStale);
                 continue;
             }
 
-            const icon = this._createPersonIcon(stateObj, name);
+            const icon = this._createPersonIcon(stateObj, name, isStale);
 
             const marker = window.L.marker([location.latitude, location.longitude], {
                 icon,
@@ -882,6 +889,7 @@ class WhereaboutsMapCard extends LitElement {
 
             marker.bindPopup(`<strong>${name}</strong><br>${entityState}`);
             this._markers.set(person.entity_id, marker);
+            this._staleState.set(person.entity_id, isStale);
         }
 
         for (const [entityId, marker] of this._markers) {
@@ -902,6 +910,46 @@ class WhereaboutsMapCard extends LitElement {
         if (conditions.length === 0) return true;
         const defaultConditions = person.displayConditions?.length ? (this.displayConditions || []) : undefined;
         return evaluateConditions(this._hass, person, this._getCurrentUserLocation(), conditions, defaultConditions);
+    }
+
+    private _getDataAgeHours(entityId: string): number {
+        const entity = this._hass?.states?.[entityId];
+        if (!entity) return Infinity;
+        const lastChanged = entity.last_changed || entity.last_updated;
+        if (!lastChanged) return Infinity;
+        const timestamp = new Date(lastChanged).getTime();
+        if (isNaN(timestamp)) return Infinity;
+        return (Date.now() - timestamp) / 3600000;
+    }
+
+    private _isStale(entityId: string): boolean {
+        const threshold = this.stale_after_hours;
+        if (threshold == null || threshold <= 0) return false;
+        return this._getDataAgeHours(entityId) >= threshold;
+    }
+
+    private _startStaleTimer() {
+        if (this._staleTimer != null) return;
+        this._staleTimer = setInterval(() => {
+            if (!this._leafletMap || this.stale_after_hours == null || this.stale_after_hours <= 0) return;
+            this._refreshStaleMarkers();
+        }, 60000);
+    }
+
+    private _refreshStaleMarkers() {
+        if (!this._leafletMap) return;
+        for (const person of this.persons || []) {
+            const isStale = this._isStale(person.entity_id);
+            const wasStale = this._staleState.get(person.entity_id) ?? false;
+            if (isStale === wasStale) continue;
+            this._staleState.set(person.entity_id, isStale);
+            const marker = this._markers.get(person.entity_id);
+            if (marker) {
+                const stateObj = this._hass?.states?.[person.entity_id];
+                const name = person.name || stateObj?.attributes?.friendly_name || person.entity_id;
+                marker.setIcon(this._createPersonIcon(stateObj, name, isStale));
+            }
+        }
     }
 
     private _togglePerson(entityId: string) {
@@ -1058,6 +1106,11 @@ class WhereaboutsMapCard extends LitElement {
         .overlay-person-btn.hidden {
             filter: grayscale(1);
             opacity: 0.5;
+        }
+        .person-marker.stale {
+            filter: grayscale(1);
+            opacity: 0.6;
+            transition: filter 0.2s, opacity 0.2s;
         }
         .person-icon-img {
             width: 100%;

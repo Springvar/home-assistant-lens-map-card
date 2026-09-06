@@ -19,7 +19,7 @@ export interface DisplayRule {
 
 export type ConditionComparator = 'eq' | 'ne' | 'lt' | 'lte' | 'gt' | 'gte' | 'oneOf' | 'notOneOf';
 
-export const BUILT_IN_SENSORS = ['distance', 'distance_from_person', 'distance_from_zone', 'state', 'who', 'where', 'when', 'user', 'random'] as const;
+export const BUILT_IN_SENSORS = ['distance', 'distance_from_person', 'distance_from_zone', 'state', 'who', 'where', 'when', 'user', 'random', 'data_age'] as const;
 export type BuiltInSensor = typeof BUILT_IN_SENSORS[number];
 
 export const TRAIL_SENSORS = ['distance_from_user', 'distance_from_person', 'distance_from_zone'] as const;
